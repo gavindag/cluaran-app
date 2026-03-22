@@ -7,6 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=Bebas+Neue&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -27,28 +28,35 @@
     ::-webkit-scrollbar { width: 3px; }
     ::-webkit-scrollbar-thumb { background: #c0bdb8; }
 
-    /* PIN SCREEN */
-    #pin-screen {
+    /* LOGIN SCREEN */
+    #login-screen {
       min-height: 100vh; display: flex; align-items: center; justify-content: center; text-align: center;
     }
-    #pin-screen h1 { font-family: 'Bebas Neue'; font-size: 48px; color: #1a1a1a; letter-spacing: 4px; margin-bottom: 8px; }
-    #pin-screen p { font-size: 10px; color: var(--dim); letter-spacing: 3px; margin-bottom: 40px; }
-    #pin-label { font-size: 11px; color: var(--muted); letter-spacing: 2px; margin-bottom: 16px; }
-    #pin-input {
+    #login-screen h1 { font-family: 'Bebas Neue'; font-size: 48px; color: #1a1a1a; letter-spacing: 4px; margin-bottom: 8px; }
+    #login-screen p { font-size: 10px; color: var(--dim); letter-spacing: 3px; margin-bottom: 40px; }
+    #login-label { font-size: 11px; color: var(--muted); letter-spacing: 2px; margin-bottom: 16px; }
+    #login-email {
       background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
-      color: var(--amber); padding: 14px 20px; font-size: 24px; font-family: 'Bebas Neue';
-      letter-spacing: 8px; text-align: center; width: 140px; display: block; margin: 0 auto 12px;
-      outline: none; transition: border-color 0.2s; -webkit-text-security: disc;
+      color: var(--text); padding: 12px 16px; font-size: 14px; font-family: 'DM Mono';
+      text-align: center; width: 260px; display: block; margin: 0 auto 12px;
+      outline: none; transition: border-color 0.2s;
     }
-    #pin-input:focus { border-color: rgba(180,110,0,0.5); }
-    #pin-input.error { border-color: var(--red); }
-    #pin-error { font-size: 11px; color: var(--red); letter-spacing: 1px; margin-bottom: 12px; min-height: 16px; }
-    #pin-btn {
+    #login-email:focus { border-color: rgba(180,110,0,0.5); }
+    #login-error { font-size: 11px; color: var(--red); letter-spacing: 1px; margin-bottom: 12px; min-height: 16px; }
+    #login-btn {
       background: rgba(180,110,0,0.08); border: 1px solid rgba(180,110,0,0.25);
       border-radius: 8px; color: var(--amber); padding: 10px 28px; font-size: 11px;
       letter-spacing: 2px; cursor: pointer; font-family: 'DM Mono'; transition: background 0.2s;
     }
-    #pin-btn:hover { background: rgba(180,110,0,0.15); }
+    #login-btn:hover { background: rgba(180,110,0,0.15); }
+    #login-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    #login-sent {
+      display: none; margin-top: 20px; font-size: 11px; color: var(--green);
+      letter-spacing: 1px; line-height: 1.8;
+    }
+
+    /* PIN SCREEN — removed, replaced by login screen */
+    #pin-screen { display: none; }
 
     /* MAIN APP */
     #app { display: none; max-width: 540px; margin: 0 auto; padding: 32px 20px 80px; }
@@ -332,15 +340,16 @@
 </head>
 <body>
 
-<!-- PIN SCREEN -->
-<div id="pin-screen">
+<!-- LOGIN SCREEN -->
+<div id="login-screen">
   <div>
     <h1>CLUARAN</h1>
     <p>CALORIE LOG</p>
-    <div id="pin-label">ENTER PIN</div>
-    <input type="password" id="pin-input" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="····">
-    <div id="pin-error"></div>
-    <button id="pin-btn">UNLOCK</button>
+    <div id="login-label">ENTER YOUR EMAIL</div>
+    <input type="email" id="login-email" placeholder="you@example.com" autocomplete="email">
+    <div id="login-error"></div>
+    <button id="login-btn">SEND MAGIC LINK</button>
+    <div id="login-sent">✓ LINK SENT<br>Check your email and click the link to sign in.</div>
   </div>
 </div>
 
@@ -531,8 +540,27 @@
 
 <script>
   const SUPABASE_URL = "https://xnbfhxrrdkpypvlxtooo.supabase.co";
-  const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhuYmZoeHJyZGtweXB2bHh0b29vIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxMTk3NDIsImV4cCI6MjA4OTY5NTc0Mn0.P1Eb6bmDgpKqkZfc2KlAviRn4qsQKJYnO0veeNTNWL0";
-  const CORRECT_PIN = "1351";
+  const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhuYmZoeHJyZGtweXB2bHh0b29vIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxMTk3NDIsImV4cCI6MjA4OTY5NTc0Mn0.P1Eb6bmDgpKqkZfc2KlAviRn4qsQKJYnO0veeNTNWL0";
+  const WORKER_URL = "https://dark-thunder-4366.gavin-fleming.workers.dev";
+  const WORKER_SECRET = "84904d79c9a4e5c398339fbda96336dafd7c71d990469cd8c8b2d3854ecea590";
+
+  // Initialise Supabase client
+  const { createClient } = supabase;
+  const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  // Current session token — kept in sync by onAuthStateChange
+  let _sessionToken = null;
+
+  // Auth headers built from live session JWT
+  function getSBHeaders(extraHeaders = {}) {
+    return {
+      "Content-Type": "application/json",
+      "apikey": SUPABASE_ANON_KEY,
+      "Authorization": `Bearer ${_sessionToken ?? SUPABASE_ANON_KEY}`,
+      "Prefer": "resolution=merge-duplicates",
+      ...extraHeaders,
+    };
+  }
 
   // Settable — defaults, overridden by Supabase settings
   let BASELINE = 2282;
@@ -541,13 +569,6 @@
   let START_WEIGHT = 102;
   let TARGET_DATE = "2026-07-01";
   let AVG_ACTIVE = 907;  // default: 3189 total - 2282 baseline
-
-  const SB_HEADERS = {
-    "Content-Type": "application/json",
-    "apikey": SUPABASE_KEY,
-    "Authorization": `Bearer ${SUPABASE_KEY}`,
-    "Prefer": "resolution=merge-duplicates"
-  };
 
   let entries = [];
   let activeCals = 0;
@@ -561,58 +582,84 @@
   function getDailyBudget() { return BASELINE + activeCals - TARGET_DEFICIT; }
   function getTotal() { return entries.reduce((s, e) => s + e.cal, 0); }
 
-  // --- PIN ---
-  const pinScreen = document.getElementById("pin-screen");
+  // ── AUTH ─────────────────────────────────────────────────────
+  const loginScreen = document.getElementById("login-screen");
   const appEl = document.getElementById("app");
-  const pinInput = document.getElementById("pin-input");
-  const pinError = document.getElementById("pin-error");
 
-  function tryUnlock(pin) {
-    if (pin === CORRECT_PIN) {
-      sessionStorage.setItem("cluaran-pin", pin);
-      pinScreen.style.display = "none";
-      appEl.style.display = "block";
-      init();
-    } else {
-      pinError.textContent = "INCORRECT PIN";
-      pinInput.classList.add("error");
-      pinInput.value = "";
-      setTimeout(() => { pinInput.classList.remove("error"); pinError.textContent = ""; }, 1500);
-    }
-  }
-
-  document.getElementById("pin-btn").addEventListener("click", () => tryUnlock(pinInput.value));
-  pinInput.addEventListener("keydown", e => { if (e.key === "Enter") tryUnlock(pinInput.value); });
-
-  if (sessionStorage.getItem("cluaran-pin") === CORRECT_PIN) {
-    pinScreen.style.display = "none";
+  function showApp() {
+    loginScreen.style.display = "none";
     appEl.style.display = "block";
-    window.addEventListener("DOMContentLoaded", init);
   }
+
+  function showLogin() {
+    loginScreen.style.display = "flex";
+    appEl.style.display = "none";
+  }
+
+  // Handle magic link token on page load (Supabase redirects back with #access_token)
+  let _appInited = false;
+  sb.auth.onAuthStateChange((event, session) => {
+    if (session) {
+      _sessionToken = session.access_token;
+      showApp();
+      if (!_appInited) { _appInited = true; init(); }
+    } else {
+      _sessionToken = null;
+      showLogin();
+    }
+  });
+
+  // Send magic link
+  document.getElementById("login-btn").addEventListener("click", async () => {
+    const email = document.getElementById("login-email").value.trim();
+    const errEl = document.getElementById("login-error");
+    const sentEl = document.getElementById("login-sent");
+    const btn = document.getElementById("login-btn");
+    errEl.textContent = "";
+    if (!email || !email.includes("@")) {
+      errEl.textContent = "PLEASE ENTER A VALID EMAIL";
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = "SENDING…";
+    const { error } = await sb.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: window.location.href }
+    });
+    if (error) {
+      errEl.textContent = error.message.toUpperCase();
+      btn.disabled = false;
+      btn.textContent = "SEND MAGIC LINK";
+    } else {
+      btn.style.display = "none";
+      document.getElementById("login-label").style.display = "none";
+      document.getElementById("login-email").style.display = "none";
+      sentEl.style.display = "block";
+    }
+  });
+
+  document.getElementById("login-email").addEventListener("keydown", e => {
+    if (e.key === "Enter") document.getElementById("login-btn").click();
+  });
 
   // --- SUPABASE ---
   async function fetchDay(day) {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/calorie_log?day=eq.${day}&select=*`, { headers: SB_HEADERS });
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/calorie_log?day=eq.${day}&select=*`, { headers: getSBHeaders() });
     if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
     const data = await res.json();
     return data[0] || null;
   }
 
   async function fetchHistory(excludeDay) {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/calorie_log?day=neq.${excludeDay}&select=*&order=day.desc&limit=30`, { headers: SB_HEADERS });
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/calorie_log?day=neq.${excludeDay}&select=*&order=day.desc&limit=30`, { headers: getSBHeaders() });
     if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
     return await res.json();
   }
 
   async function upsertDay(day, ents, active) {
-    const headers = {
-      "Content-Type": "application/json",
-      "apikey": SUPABASE_KEY,
-      "Authorization": `Bearer ${SUPABASE_KEY}`
-    };
     const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/upsert_calorie_log`, {
       method: "POST",
-      headers: headers,
+      headers: getSBHeaders(),
       body: JSON.stringify({ p_day: day, p_entries: ents, p_active_cals: active })
     });
     if (!res.ok) {
@@ -632,7 +679,7 @@
     const filter = days.map(d => `day.eq.${d}`).join(',');
     const res = await fetch(
       `${SUPABASE_URL}/rest/v1/calorie_log?or=(${filter})&select=day,active_cals&order=day.desc`,
-      { headers: SB_HEADERS }
+      { headers: getSBHeaders() }
     );
     if (!res.ok) return null;
     return await res.json();
@@ -640,7 +687,7 @@
 
   async function fetchSettings() {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/app_settings?select=key,value`, {
-      headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` }
+      headers: getSBHeaders()
     });
     if (!res.ok) return; // silently fail — defaults will be used
     const rows = await res.json();
@@ -655,24 +702,21 @@
   }
 
   async function saveSettings(vals) {
-    const headers = {
-      "Content-Type": "application/json",
-      "apikey": SUPABASE_KEY,
-      "Authorization": `Bearer ${SUPABASE_KEY}`,
-      "Prefer": "resolution=merge-duplicates"
-    };
     const rows = Object.entries(vals).map(([key, value]) => ({ key, value: String(value) }));
     const res = await fetch(`${SUPABASE_URL}/rest/v1/app_settings`, {
-      method: "POST", headers, body: JSON.stringify(rows)
+      method: "POST", headers: getSBHeaders(), body: JSON.stringify(rows)
     });
     if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
   }
 
-  // --- ANTHROPIC ---
+  // --- ANTHROPIC (via Worker) ---
   async function parseFood(text) {
-    const res = await fetch("https://dark-thunder-4366.gavin-fleming.workers.dev", {
+    const res = await fetch(WORKER_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "X-Worker-Key": WORKER_SECRET,
+      },
       body: JSON.stringify({ text })
     });
     if (!res.ok) throw new Error(`Worker error: ${res.status}`);
@@ -1037,21 +1081,15 @@
   async function fetchWeightLog() {
     const res = await fetch(
       `${SUPABASE_URL}/rest/v1/weight_log?select=day,weight_kg&order=day.asc`,
-      { headers: SB_HEADERS }
+      { headers: getSBHeaders() }
     );
     if (!res.ok) return [];
     return await res.json();
   }
 
   async function upsertWeight(day, weight_kg) {
-    const headers = {
-      "Content-Type": "application/json",
-      "apikey": SUPABASE_KEY,
-      "Authorization": `Bearer ${SUPABASE_KEY}`,
-      "Prefer": "resolution=merge-duplicates"
-    };
     const res = await fetch(`${SUPABASE_URL}/rest/v1/weight_log`, {
-      method: "POST", headers,
+      method: "POST", headers: getSBHeaders(),
       body: JSON.stringify([{ day, weight_kg }])
     });
     if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
@@ -1190,7 +1228,7 @@
       setSaving(true);
       try {
         // fetch existing entries for that day first
-        const res = await fetch(`${SUPABASE_URL}/rest/v1/calorie_log?day=eq.${day}&select=*`, { headers: SB_HEADERS });
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/calorie_log?day=eq.${day}&select=*`, { headers: getSBHeaders() });
         const rows = await res.json();
         const existingEntries = rows[0] ? rows[0].entries : [];
         await upsertDay(day, existingEntries, newVal);
