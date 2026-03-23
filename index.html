@@ -239,11 +239,28 @@
     .empty-msg { color: var(--muted); font-size: 13px; text-align: center; padding: 48px 0; font-style: italic; }
 
     /* HISTORY */
-    .hist-day { margin-bottom: 24px; }
-    .hist-day-header { display: flex; justify-content: space-between; margin-bottom: 8px; }
+    .hist-day { margin-bottom: 12px; }
+    .hist-day-header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 10px 14px; cursor: pointer; user-select: none;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+      transition: background 0.15s;
+    }
+    .hist-day-header:hover { background: #f0ede8; }
+    .hist-day-header.open { border-radius: 8px 8px 0 0; border-bottom-color: transparent; }
+    .hist-day-left { display: flex; align-items: center; gap: 8px; }
+    .hist-chevron {
+      font-size: 9px; color: var(--dim); transition: transform 0.2s; display: inline-block;
+    }
+    .hist-day-header.open .hist-chevron { transform: rotate(90deg); }
     .hist-day-label { font-size: 10px; color: var(--dim); letter-spacing: 2px; }
     .hist-day-total { font-size: 13px; font-family: 'Bebas Neue'; letter-spacing: 1px; }
-    .hist-entries { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    .hist-entries {
+      background: var(--surface); border: 1px solid var(--border);
+      border-top: none; border-radius: 0 0 8px 8px; overflow: hidden;
+      display: none;
+    }
+    .hist-entries.open { display: block; }
     .hist-entry { display: flex; padding: 8px 12px; border-bottom: 1px solid var(--border); }
     .hist-entry:last-child { border-bottom: none; }
     .hist-entry-time { font-size: 10px; color: var(--dim); width: 34px; }
@@ -922,19 +939,25 @@
       el.innerHTML = `<div class="empty-msg">No history yet</div>`;
       return;
     }
-    el.innerHTML = rows.map(row => {
+    el.innerHTML = rows.map((row, i) => {
       const dayTotal = (row.entries || []).reduce((s, e) => s + e.cal, 0);
       const budget = BASELINE + (row.active_cals || 0) - TARGET_DEFICIT;
       const over = dayTotal > budget;
+      const id = `hist-entries-${i}`;
+      // Most recent day open by default, rest collapsed
+      const openClass = i === 0 ? " open" : "";
       return `<div class="hist-day">
-        <div class="hist-day-header">
-          <span class="hist-day-label">${formatDate(row.day).toUpperCase()}</span>
+        <div class="hist-day-header${openClass}" onclick="toggleHistDay(this, '${id}')">
+          <div class="hist-day-left">
+            <span class="hist-chevron">▶</span>
+            <span class="hist-day-label">${formatDate(row.day).toUpperCase()}</span>
+          </div>
           <div style="display:flex;align-items:center;gap:10px;">
             <span class="hist-day-total" style="color:${over ? "var(--red)" : "var(--green)"}">${dayTotal.toLocaleString()} / ${budget.toLocaleString()} KCAL</span>
-            <button class="edit-active-btn" onclick="editActiveCals('${row.day}', ${row.active_cals || 0})" title="Edit Garmin active cals">⌚ ${(row.active_cals || 0)} kcal</button>
+            <button class="edit-active-btn" onclick="event.stopPropagation();editActiveCals('${row.day}', ${row.active_cals || 0})" title="Edit Garmin active cals">⌚ ${(row.active_cals || 0)} kcal</button>
           </div>
         </div>
-        <div class="hist-entries">
+        <div class="hist-entries${openClass}" id="${id}">
           ${(row.entries || []).map(e => `
             <div class="hist-entry">
               <span class="hist-entry-time">${e.time || ""}</span>
@@ -945,6 +968,13 @@
       </div>`;
     }).join("");
   }
+
+  window.toggleHistDay = function(header, entriesId) {
+    const entries = document.getElementById(entriesId);
+    const isOpen = header.classList.contains("open");
+    header.classList.toggle("open", !isOpen);
+    entries.classList.toggle("open", !isOpen);
+  };
 
   // --- DATA LOADING ---
   async function loadData() {
