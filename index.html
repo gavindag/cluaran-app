@@ -962,20 +962,20 @@
     const today = new Date();
     const todayStr = today.toISOString().split('T')[0];
 
-    // Week: Mon–Sun containing today
-    const dow = (today.getDay() + 6) % 7; // Mon=0
-    const weekStart = new Date(today); weekStart.setDate(today.getDate() - dow);
+    // Week: rolling last 7 days including today
+    const weekStart = new Date(today); weekStart.setDate(today.getDate() - 6);
     const weekStartStr = weekStart.toISOString().split('T')[0];
 
     // Month: 1st of current month
     const monthStartStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-01`;
 
     function summarise(filterFn) {
-      const filtered = rows.filter(r => r.day >= filterFn && r.day < todayStr);
+      const all = rows.filter(r => r.day >= filterFn && r.day <= todayStr);
+      // Only include days where food was actually logged
+      const filtered = all.filter(r => (r.entries||[]).length > 0);
       if (filtered.length === 0) return null;
       const days = filtered.length;
       const totalConsumed = filtered.reduce((s, r) => s + (r.entries||[]).reduce((a,e) => a+e.cal, 0), 0);
-      const totalBudget   = filtered.reduce((s, r) => s + BASELINE + (r.active_cals||0) - TARGET_DEFICIT, 0);
       const totalBurn     = filtered.reduce((s, r) => s + BASELINE + (r.active_cals||0), 0);
       const avgConsumed   = Math.round(totalConsumed / days);
       const avgBurn       = Math.round(totalBurn / days);
@@ -1011,7 +1011,7 @@
     el.innerHTML = `
       <div class="deficit-summary-title">DEFICIT SUMMARY</div>
       <div class="deficit-summary-row">
-        ${blockHTML("THIS WEEK", week, week ? `${week.days} day${week.days>1?'s':''} logged` : '')}
+        ${blockHTML("LAST 7 DAYS", week, week ? `${week.days} day${week.days>1?'s':''} logged` : '')}
         ${blockHTML("THIS MONTH", month, month ? `${month.days} day${month.days>1?'s':''} logged` : '')}
       </div>`;
   }
