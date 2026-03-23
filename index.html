@@ -306,10 +306,27 @@
     /* DEFICIT SUMMARY */
     #deficit-summary {
       background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
-      padding: 16px 20px; margin-bottom: 20px;
+      margin-bottom: 20px; margin-top: 20px; overflow: hidden;
     }
-    .deficit-summary-title { font-size: 9px; color: var(--dim); letter-spacing: 3px; margin-bottom: 14px; }
-    .deficit-summary-row { display: flex; gap: 8px; }
+    #deficit-summary-header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 12px 20px; cursor: pointer; user-select: none;
+    }
+    #deficit-summary-header:hover { background: rgba(0,0,0,0.02); }
+    .deficit-summary-title { font-size: 9px; color: var(--dim); letter-spacing: 3px; }
+    .deficit-summary-pills { display: flex; gap: 8px; align-items: center; }
+    .deficit-pill {
+      font-family: 'Bebas Neue'; font-size: 14px; letter-spacing: 1px;
+      padding: 2px 8px; border-radius: 5px; background: var(--bg);
+    }
+    .deficit-pill-label { font-size: 8px; color: var(--dim); letter-spacing: 1px; margin-right: 3px; font-family: 'DM Mono'; }
+    #deficit-chevron { font-size: 9px; color: var(--dim); transition: transform 0.2s; margin-left: 8px; }
+    #deficit-chevron.open { transform: rotate(90deg); }
+    #deficit-summary-body {
+      display: none; padding: 0 16px 16px; border-top: 1px solid var(--border);
+    }
+    #deficit-summary-body.open { display: block; }
+    .deficit-summary-row { display: flex; gap: 8px; padding-top: 14px; }
     .deficit-block {
       flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
       padding: 12px 14px;
@@ -1010,13 +1027,37 @@
         </div>`;
     }
 
+    function pillHTML(data) {
+      if (!data) return `<span class="deficit-pill" style="color:var(--dim)">NO DATA</span>`;
+      return `<span class="deficit-pill-label">${data.label}</span><span class="deficit-pill" style="color:${data.color}">${data.avgDeficit.toLocaleString()}</span>`;
+    }
+
     el.innerHTML = `
-      <div class="deficit-summary-title">DEFICIT SUMMARY</div>
-      <div class="deficit-summary-row">
-        ${blockHTML("LAST 7 DAYS", week, week ? `${week.days} day${week.days>1?'s':''} logged` : '')}
-        ${blockHTML("THIS MONTH", month, month ? `${month.days} day${month.days>1?'s':''} logged` : '')}
+      <div id="deficit-summary-header" onclick="toggleDeficitSummary()">
+        <div class="deficit-summary-title">DEFICIT SUMMARY</div>
+        <div style="display:flex;align-items:center;">
+          <div class="deficit-summary-pills">
+            ${pillHTML(week ? {...week, label:'7D'} : null)}
+            <span style="color:var(--border);font-size:10px;">|</span>
+            ${pillHTML(month ? {...month, label:'MTH'} : null)}
+          </div>
+          <span id="deficit-chevron">▶</span>
+        </div>
+      </div>
+      <div id="deficit-summary-body">
+        <div class="deficit-summary-row">
+          ${blockHTML("LAST 7 DAYS", week, week ? `${week.days} day${week.days>1?'s':''} logged` : '')}
+          ${blockHTML("THIS MONTH", month, month ? `${month.days} day${month.days>1?'s':''} logged` : '')}
+        </div>
       </div>`;
   }
+
+  window.toggleDeficitSummary = function() {
+    const body    = document.getElementById('deficit-summary-body');
+    const chevron = document.getElementById('deficit-chevron');
+    const open    = body.classList.toggle('open');
+    chevron.classList.toggle('open', open);
+  };
 
   function renderHistory(rows) {
     const el = document.getElementById("tab-history-days");
