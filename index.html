@@ -976,13 +976,14 @@
       if (filtered.length === 0) return null;
       const days = filtered.length;
       const totalConsumed = filtered.reduce((s, r) => s + (r.entries||[]).reduce((a,e) => a+e.cal, 0), 0);
-      const totalBurn     = filtered.reduce((s, r) => s + BASELINE + (r.active_cals||0), 0);
+      const totalBudget   = filtered.reduce((s, r) => s + BASELINE + (r.active_cals||0) - TARGET_DEFICIT, 0);
       const avgConsumed   = Math.round(totalConsumed / days);
-      const avgBurn       = Math.round(totalBurn / days);
-      const avgDeficit    = avgBurn - avgConsumed;
+      const avgBudget     = Math.round(totalBudget / days);
+      // Surplus = how far under your food budget you came (positive = good)
+      const avgDeficit    = avgBudget - avgConsumed;
       const pct           = Math.min(Math.max(avgDeficit / TARGET_DEFICIT, 0), 1.5);
-      const color         = avgDeficit >= TARGET_DEFICIT ? "var(--green)" : avgDeficit >= TARGET_DEFICIT * 0.8 ? "var(--orange)" : "var(--red)";
-      return { days, avgConsumed, avgBurn, avgDeficit, pct, color };
+      const color         = avgDeficit >= 0 ? "var(--green)" : "var(--red)";
+      return { days, avgConsumed, avgBudget, avgDeficit, pct, color };
     }
 
     const week  = summarise(weekStartStr);
@@ -999,9 +1000,9 @@
           <div class="deficit-block-label">${label}</div>
           <div class="deficit-block-main">
             <span class="deficit-block-val" style="color:${data.color}">${data.avgDeficit.toLocaleString()}</span>
-            <span class="deficit-block-unit">kcal/day avg</span>
+            <span class="deficit-block-unit">kcal/day under budget</span>
           </div>
-          <div class="deficit-block-sub">${data.avgConsumed.toLocaleString()} consumed · ${data.avgBurn.toLocaleString()} burned · ${daysLabel}</div>
+          <div class="deficit-block-sub">${data.avgConsumed.toLocaleString()} consumed · ${data.avgBudget.toLocaleString()} budget · ${daysLabel}</div>
           <div class="deficit-block-bar">
             <div class="deficit-block-bar-fill" style="width:${Math.round(data.pct*100)}%;background:${data.color}"></div>
           </div>
