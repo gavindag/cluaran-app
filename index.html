@@ -490,7 +490,7 @@
       <div class="header-sub" id="date-label"></div>
     </div>
     <div style="display:flex;align-items:center;gap:14px;">
-      <div style="font-size:10px;color:var(--dim);letter-spacing:1px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 7px;">v2.3</div>
+      <div style="font-size:10px;color:var(--dim);letter-spacing:1px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 7px;">v2.4</div>
       <div id="saving-indicator">SAVING…</div>
       <button id="signout-btn" title="Sign out">SIGN OUT</button>
       <button id="settings-btn" title="Settings">⚙</button>
@@ -971,7 +971,7 @@
     }
   }
 
-  function updateOnTrack() {
+  function updateOnTrack(currentWeight) {
     const badge   = document.getElementById('on-track-badge');
     const toLoseEl  = document.getElementById('track-to-lose');
     const daysEl    = document.getElementById('track-days');
@@ -981,7 +981,8 @@
     const today = new Date(); today.setHours(0,0,0,0);
     const target = new Date(TARGET_DATE + 'T00:00:00');
     const daysLeft = Math.round((target - today) / 86400000);
-    const kgToLose = parseFloat((START_WEIGHT - TARGET_WEIGHT).toFixed(1));
+    const weightNow = currentWeight || START_WEIGHT;
+    const kgToLose = parseFloat((weightNow - TARGET_WEIGHT).toFixed(1));
 
     toLoseEl.textContent = kgToLose > 0 ? kgToLose.toFixed(1) : '0';
     daysEl.textContent   = daysLeft > 0 ? daysLeft : '0';
@@ -1499,9 +1500,8 @@
     if (todayLog) document.getElementById("weight-input").value = todayLog.weight_kg;
     // Update on-track "to lose" with latest weigh-in
     if (logs.length > 0) {
-      const latest = logs[logs.length - 1].weight_kg;
-      START_WEIGHT = latest;
-      updateOnTrack();
+      const latestWeight = logs[logs.length - 1].weight_kg;
+      updateOnTrack(latestWeight);
     }
   }
 
@@ -1520,7 +1520,7 @@
     emptyEl.style.display = 'none';
     canvas.style.display = 'block';
 
-    // Latest stats
+    // Latest stats — START_WEIGHT is always the settings start weight
     const latest = logs[logs.length - 1];
     const lost = parseFloat((START_WEIGHT - latest.weight_kg).toFixed(1));
     latestEl.innerHTML = `
