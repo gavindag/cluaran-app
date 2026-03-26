@@ -139,6 +139,21 @@
     .wl-item .wl-unit { font-size: 9px; color: var(--muted); margin-top: 1px; }
     #weight-empty { color: var(--muted); font-size: 13px; text-align: center; padding: 48px 0; font-style: italic; }
 
+    /* WEIGHT PROJECTIONS */
+    #weight-projections {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+      padding: 16px 20px; margin-bottom: 20px;
+    }
+    .proj-title { font-size: 9px; color: var(--dim); letter-spacing: 3px; margin-bottom: 14px; }
+    .proj-row { display: flex; gap: 8px; }
+    .proj-block {
+      flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+      padding: 12px 14px;
+    }
+    .proj-block-label { font-size: 9px; color: var(--dim); letter-spacing: 2px; margin-bottom: 6px; }
+    .proj-block-date { font-family: 'Bebas Neue'; font-size: 22px; line-height: 1; margin-bottom: 4px; }
+    .proj-block-sub { font-size: 9px; color: var(--dim); }
+
     /* ON-TRACK PANEL */
     #on-track {
       background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
@@ -278,6 +293,11 @@
       z-index: 100; align-items: center; justify-content: center;
     }
     #edit-active-modal.open { display: flex; }
+    #edit-weight-modal {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4);
+      z-index: 100; align-items: center; justify-content: center;
+    }
+    #edit-weight-modal.open { display: flex; }
     #edit-active-box {
       background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
       padding: 24px; width: 300px; max-width: 90vw;
@@ -619,6 +639,7 @@
       <div id="weight-empty" style="display:none">No weigh-ins yet — enter your weight above</div>
       <canvas id="weight-chart" height="200"></canvas>
     </div>
+    <div id="weight-projections"></div>
   </div>
   <!-- EDIT ACTIVE CALS MODAL -->
   <div id="edit-active-modal">
@@ -629,6 +650,19 @@
       <div class="edit-modal-btns">
         <button id="edit-active-save">SAVE</button>
         <button id="edit-active-cancel">CANCEL</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- EDIT WEIGHT MODAL -->
+  <div id="edit-weight-modal">
+    <div id="edit-active-box">
+      <div id="edit-active-box-label" style="font-size:11px;color:var(--dim);letter-spacing:2px;margin-bottom:8px;">EDIT WEIGHT</div>
+      <div id="edit-weight-day"></div>
+      <input type="number" id="edit-weight-input" placeholder="0" step="0.1">
+      <div class="edit-modal-btns">
+        <button id="edit-weight-save">SAVE</button>
+        <button id="edit-weight-cancel">CANCEL</button>
       </div>
     </div>
   </div>
@@ -669,6 +703,7 @@
 
   let entries = [];
   let activeCals = 0;
+  let weightTabLoaded = false;
   let todayKey = new Date().toISOString().split("T")[0];
 
   function formatDate(key) {
@@ -1078,9 +1113,10 @@
             <span class="hist-chevron">▶</span>
             <span class="hist-day-label">${formatDate(row.day).toUpperCase()}</span>
           </div>
-          <div style="display:flex;align-items:center;gap:10px;">
+          <div style="display:flex;align-items:center;gap:6px;">
             <span class="hist-day-total" style="color:${over ? "var(--red)" : "var(--green)"}">${dayTotal.toLocaleString()} / ${budget.toLocaleString()} KCAL</span>
-            <button class="edit-active-btn" onclick="event.stopPropagation();editActiveCals('${row.day}', ${row.active_cals || 0})" title="Edit Garmin active cals">⌚ ${(row.active_cals || 0)} kcal</button>
+            <button class="edit-active-btn" onclick="event.stopPropagation();editActiveCals('${row.day}', ${row.active_cals || 0})" title="Edit Garmin active cals">⌚ ${(row.active_cals || 0)}</button>
+            <button class="edit-active-btn" style="color:var(--amber);border-color:rgba(184,112,0,0.2);background:rgba(184,112,0,0.08);" onclick="event.stopPropagation();editWeight('${row.day}')" title="Edit weight">⚖</button>
           </div>
         </div>
         <div class="hist-entries${openClass}" id="${id}">
@@ -1249,7 +1285,6 @@
     foodInput.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleLog(); } });
 
     // TABS
-    let weightTabLoaded = false;
     document.querySelectorAll(".tab-btn").forEach(btn => {
       btn.addEventListener("click", () => {
         document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
@@ -1306,8 +1341,8 @@
   let weightChart = null;
 
   async function loadWeightTab() {
-    const logs = await fetchWeightLog();
-    renderWeightChart(logs);
+    const [logs, calorieHist] = await Promise.all([fetchWeightLog(), fetchHistory(todayKey)]);
+    renderWeightChart(logs, calorieHist);
     // Update on-track "to lose" with latest weigh-in
     if (logs.length > 0) {
       const latest = logs[logs.length - 1].weight_kg;
@@ -1316,7 +1351,7 @@
     }
   }
 
-  function renderWeightChart(logs) {
+  function renderWeightChart(logs, calorieHist) {
     const canvas = document.getElementById('weight-chart');
     const emptyEl = document.getElementById('weight-empty');
     const latestEl = document.getElementById('weight-latest');
@@ -1325,6 +1360,7 @@
       emptyEl.style.display = 'block';
       canvas.style.display = 'none';
       latestEl.innerHTML = '';
+      document.getElementById('weight-projections').innerHTML = '';
       return;
     }
     emptyEl.style.display = 'none';
@@ -1363,36 +1399,117 @@
 
     const actualData = logs.map(l => ({ x: l.day, y: l.weight_kg }));
 
+    // ── PROJECTIONS ──────────────────────────────────────────
+    // Compute avg daily deficit from calorie history for N days
+    function avgDeficitForDays(n) {
+      if (!calorieHist || calorieHist.length === 0) return null;
+      const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - n);
+      const cutoffStr = cutoff.toISOString().split('T')[0];
+      const filtered = calorieHist.filter(r =>
+        r.day >= cutoffStr && (r.entries||[]).length > 0
+      );
+      if (filtered.length < 2) return null;
+      const totalConsumed = filtered.reduce((s, r) => s + (r.entries||[]).reduce((a,e) => a+e.cal, 0), 0);
+      const totalBurn     = filtered.reduce((s, r) => s + BASELINE + (r.active_cals||0), 0);
+      return (totalBurn - totalConsumed) / filtered.length;
+    }
+
+    function projectTargetDate(avgDailyDeficit) {
+      if (!avgDailyDeficit || avgDailyDeficit <= 0) return null;
+      const currentWeight = parseFloat(latest.weight_kg);
+      const kgToLose = currentWeight - TARGET_WEIGHT;
+      if (kgToLose <= 0) return { date: 'Already there!', days: 0 };
+      const daysNeeded = Math.round((kgToLose * 7700) / avgDailyDeficit);
+      const projDate = new Date(); projDate.setDate(projDate.getDate() + daysNeeded);
+      return {
+        date: projDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+        days: daysNeeded,
+        deficit: Math.round(avgDailyDeficit)
+      };
+    }
+
+    function buildProjectionLine(avgDailyDeficit, color) {
+      if (!avgDailyDeficit || avgDailyDeficit <= 0) return [];
+      const currentWeight = parseFloat(latest.weight_kg);
+      const todayStr = new Date().toISOString().split('T')[0];
+      const points = [{ x: latest.day, y: currentWeight }];
+      // Project forward weekly until target weight or 2 years
+      let w = currentWeight;
+      for (let week = 1; week <= 104; week++) {
+        w = parseFloat((w - (avgDailyDeficit * 7 / 7700)).toFixed(2));
+        const d = new Date(todayStr); d.setDate(d.getDate() + week * 7);
+        points.push({ x: d.toISOString().split('T')[0], y: w });
+        if (w <= TARGET_WEIGHT) break;
+      }
+      return points;
+    }
+
+    const deficit7  = avgDeficitForDays(7);
+    const deficit30 = avgDeficitForDays(30);
+    const proj7     = projectTargetDate(deficit7);
+    const proj30    = projectTargetDate(deficit30);
+    const projLine7  = buildProjectionLine(deficit7,  '#1565a8');
+    const projLine30 = buildProjectionLine(deficit30, '#888480');
+
+    // Render projections panel
+    function projBlockHTML(label, proj, color, days) {
+      if (!proj) return `
+        <div class="proj-block">
+          <div class="proj-block-label">${label}</div>
+          <div class="proj-block-date" style="color:var(--dim);font-size:16px">NO DATA</div>
+          <div class="proj-block-sub">not enough logged days</div>
+        </div>`;
+      const diff = Math.round((new Date(proj.date.split(' ').reverse().join('-')) - new Date(TARGET_DATE)) / msPerDay);
+      const diffText = diff === 0 ? 'on target date' : diff > 0 ? `${diff} days late` : `${Math.abs(diff)} days early`;
+      const diffColor = diff <= 0 ? 'var(--green)' : 'var(--red)';
+      return `
+        <div class="proj-block">
+          <div class="proj-block-label">${label}</div>
+          <div class="proj-block-date" style="color:${color}">${proj.date}</div>
+          <div class="proj-block-sub">${proj.deficit} kcal/day avg deficit · <span style="color:${diffColor}">${diffText}</span></div>
+        </div>`;
+    }
+
+    document.getElementById('weight-projections').innerHTML = `
+      <div class="proj-title">PROJECTED TARGET DATE</div>
+      <div class="proj-row">
+        ${projBlockHTML('BASED ON LAST 7 DAYS',  proj7,  '#1565a8', 7)}
+        ${projBlockHTML('BASED ON LAST 30 DAYS', proj30, '#888480', 30)}
+      </div>`;
+
+    // Datasets
+    const datasets = [
+      {
+        label: 'Actual',
+        data: actualData,
+        borderColor: '#b87000',
+        backgroundColor: 'rgba(184,112,0,0.08)',
+        borderWidth: 2,
+        pointRadius: 4,
+        pointBackgroundColor: '#b87000',
+        tension: 0.3,
+        fill: false,
+        parsing: { xAxisKey: 'x', yAxisKey: 'y' }
+      },
+      {
+        label: 'Target',
+        data: targetData,
+        borderColor: '#1a7a40',
+        borderWidth: 1.5,
+        borderDash: [5, 4],
+        pointRadius: 0,
+        tension: 0,
+        fill: false,
+        parsing: { xAxisKey: 'x', yAxisKey: 'y' }
+      }
+    ];
+    if (projLine7.length > 1)  datasets.push({ label: '7d trend', data: projLine7,  borderColor: '#1565a8', borderWidth: 1.5, borderDash: [3, 3], pointRadius: 0, tension: 0, fill: false, parsing: { xAxisKey: 'x', yAxisKey: 'y' } });
+    if (projLine30.length > 1) datasets.push({ label: '30d trend', data: projLine30, borderColor: '#aaaaaa', borderWidth: 1.5, borderDash: [3, 3], pointRadius: 0, tension: 0, fill: false, parsing: { xAxisKey: 'x', yAxisKey: 'y' } });
+
     if (weightChart) weightChart.destroy();
     weightChart = new Chart(canvas, {
       type: 'line',
-      data: {
-        datasets: [
-          {
-            label: 'Actual',
-            data: actualData,
-            borderColor: '#b87000',
-            backgroundColor: 'rgba(184,112,0,0.08)',
-            borderWidth: 2,
-            pointRadius: 4,
-            pointBackgroundColor: '#b87000',
-            tension: 0.3,
-            fill: false,
-            parsing: { xAxisKey: 'x', yAxisKey: 'y' }
-          },
-          {
-            label: 'Target',
-            data: targetData,
-            borderColor: '#1a7a40',
-            borderWidth: 1.5,
-            borderDash: [5, 4],
-            pointRadius: 0,
-            tension: 0,
-            fill: false,
-            parsing: { xAxisKey: 'x', yAxisKey: 'y' }
-          }
-        ]
-      },
+      data: { datasets },
       options: {
         responsive: true,
         interaction: { mode: 'index', intersect: false },
@@ -1447,6 +1564,35 @@
     };
 
     document.getElementById('edit-active-cancel').onclick = function() {
+      modal.classList.remove('open');
+    };
+  };
+
+  window.editWeight = async function(day) {
+    const modal = document.getElementById('edit-weight-modal');
+    document.getElementById('edit-weight-day').textContent = formatDate(day).toUpperCase();
+    // Pre-fill with existing weight if any
+    try {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/weight_log?day=eq.${day}&select=weight_kg`, { headers: getSBHeaders() });
+      const rows = await res.json();
+      document.getElementById('edit-weight-input').value = rows[0] ? rows[0].weight_kg : '';
+    } catch(e) { document.getElementById('edit-weight-input').value = ''; }
+    modal.classList.add('open');
+
+    document.getElementById('edit-weight-save').onclick = async function() {
+      const val = parseFloat(document.getElementById('edit-weight-input').value);
+      if (!val || val < 30 || val > 300) return;
+      setSaving(true);
+      try {
+        await upsertWeight(day, val);
+        modal.classList.remove('open');
+        weightTabLoaded = false;
+        loadWeightTab();
+      } catch(e) { showDbError(e.message); }
+      setSaving(false);
+    };
+
+    document.getElementById('edit-weight-cancel').onclick = function() {
       modal.classList.remove('open');
     };
   };
