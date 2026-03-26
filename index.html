@@ -202,6 +202,17 @@
     }
     #log-btn:hover:not(:disabled) { background: rgba(180,110,0,0.15); }
     #log-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    #mic-btn {
+      background: rgba(180,110,0,0.08); border: 1px solid rgba(180,110,0,0.25);
+      border-radius: 8px; padding: 8px 12px; font-size: 15px;
+      cursor: pointer; transition: all 0.2s; line-height: 1;
+    }
+    #mic-btn:hover { background: rgba(180,110,0,0.15); }
+    #mic-btn.listening {
+      background: rgba(192,57,43,0.12); border-color: rgba(192,57,43,0.4);
+      animation: pulse 1s infinite;
+    }
+    #mic-btn.unsupported { opacity: 0.3; cursor: not-allowed; }
     #log-error { font-size: 11px; color: var(--red); margin-top: 8px; min-height: 16px; }
 
     /* CONFIRMATION */
@@ -490,7 +501,7 @@
       <div class="header-sub" id="date-label"></div>
     </div>
     <div style="display:flex;align-items:center;gap:14px;">
-      <div style="font-size:10px;color:var(--dim);letter-spacing:1px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 7px;">v2.6</div>
+      <div style="font-size:10px;color:var(--dim);letter-spacing:1px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 7px;">v2.7</div>
       <div id="saving-indicator">SAVING…</div>
       <button id="signout-btn" title="Sign out">SIGN OUT</button>
       <button id="settings-btn" title="Settings">⚙</button>
@@ -637,7 +648,10 @@
     <textarea id="food-input" rows="3" placeholder='Tell me what you ate…&#10;e.g. "porridge, two lattes, 260g salmon with broccoli"'></textarea>
     <div class="input-footer">
       <div class="input-hint" id="input-hint">↵ enter to log · shift+enter for new line</div>
-      <button id="log-btn">LOG IT</button>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button id="mic-btn" title="Speak to log">🎤</button>
+        <button id="log-btn">LOG IT</button>
+      </div>
     </div>
     <div id="log-error"></div>
   </div>
@@ -1400,6 +1414,58 @@
 
     logBtn.addEventListener("click", handleLog);
     foodInput.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleLog(); } });
+
+    // VOICE INPUT
+    const micBtn = document.getElementById("mic-btn");
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      micBtn.classList.add("unsupported");
+      micBtn.title = "Voice input not supported in this browser";
+    } else {
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'en-GB';
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+      let listening = false;
+
+      micBtn.addEventListener("click", () => {
+        if (listening) {
+          recognition.stop();
+        } else {
+          recognition.start();
+        }
+      });
+
+      recognition.onstart = () => {
+        listening = true;
+        micBtn.classList.add("listening");
+        micBtn.title = "Listening… tap to stop";
+        hint.textContent = "🎤 Listening…";
+      };
+
+      recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        foodInput.value = foodInput.value ? foodInput.value + ", " + transcript : transcript;
+        foodInput.focus();
+        hint.textContent = "↵ enter to log · shift+enter for new line";
+      };
+
+      recognition.onerror = (event) => {
+        if (event.error !== 'aborted') {
+          hint.textContent = "Mic error: " + event.error;
+          setTimeout(() => { hint.textContent = "↵ enter to log · shift+enter for new line"; }, 3000);
+        }
+      };
+
+      recognition.onend = () => {
+        listening = false;
+        micBtn.classList.remove("listening");
+        micBtn.title = "Speak to log";
+        if (hint.textContent === "🎤 Listening…") {
+          hint.textContent = "↵ enter to log · shift+enter for new line";
+        }
+      };
+    }
 
     // TABS
     document.querySelectorAll(".tab-btn").forEach(btn => {
