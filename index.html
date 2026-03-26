@@ -139,6 +139,14 @@
     .wl-item .wl-unit { font-size: 9px; color: var(--muted); margin-top: 1px; }
     #weight-empty { color: var(--muted); font-size: 13px; text-align: center; padding: 48px 0; font-style: italic; }
 
+    .chart-zoom-btn {
+      background: var(--bg); border: 1px solid var(--border); border-radius: 5px;
+      color: var(--dim); padding: 3px 10px; font-size: 10px; letter-spacing: 1px;
+      cursor: pointer; font-family: 'DM Mono'; transition: all 0.15s;
+    }
+    .chart-zoom-btn:hover { border-color: var(--amber); color: var(--amber); }
+    .chart-zoom-btn.active { background: rgba(184,112,0,0.08); border-color: var(--amber); color: var(--amber); }
+
     /* WEIGHT PROJECTIONS */
     #weight-projections {
       background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
@@ -482,7 +490,7 @@
       <div class="header-sub" id="date-label"></div>
     </div>
     <div style="display:flex;align-items:center;gap:14px;">
-      <div style="font-size:10px;color:var(--dim);letter-spacing:1px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 7px;">v1.9</div>
+      <div style="font-size:10px;color:var(--dim);letter-spacing:1px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 7px;">v2.0</div>
       <div id="saving-indicator">SAVING…</div>
       <button id="signout-btn" title="Sign out">SIGN OUT</button>
       <button id="settings-btn" title="Settings">⚙</button>
@@ -662,6 +670,7 @@
     </div>
     <div id="weight-chart-wrap">
       <div id="weight-latest"></div>
+      <div id="weight-chart-controls" style="display:flex;justify-content:flex-end;gap:6px;margin-bottom:10px;"></div>
       <div id="weight-empty" style="display:none">No weigh-ins yet — enter your weight above</div>
       <canvas id="weight-chart" height="200"></canvas>
     </div>
@@ -1447,7 +1456,29 @@
     if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
   }
 
-  let weightChart = null;
+  let _chartZoom = '2M'; // default: 2 months
+
+  window.setChartZoom = function(zoom) {
+    _chartZoom = zoom;
+    document.querySelectorAll('.chart-zoom-btn').forEach(b => b.classList.toggle('active', b.dataset.zoom === zoom));
+    if (weightChart) {
+      const { min, max } = getChartRange(zoom);
+      weightChart.options.scales.x.min = min;
+      weightChart.options.scales.x.max = max;
+      weightChart.update();
+    }
+  };
+
+  function getChartRange(zoom) {
+    const today = new Date();
+    const max = new Date(today); max.setDate(today.getDate() + 28); // always show 4 weeks forward
+    let min;
+    if (zoom === '2M')     { min = new Date(today); min.setDate(today.getDate() - 60); }
+    else if (zoom === '3M'){ min = new Date(today); min.setMonth(today.getMonth() - 3); }
+    else if (zoom === '6M'){ min = new Date(today); min.setMonth(today.getMonth() - 6); }
+    else                   { min = undefined; } // ALL — no min constraint
+    return { min: min ? min.toISOString().split('T')[0] : undefined, max: max.toISOString().split('T')[0] };
+  }
 
   async function loadWeightTab() {
     const [logs, calorieHist] = await Promise.all([fetchWeightLog(), fetchHistory(todayKey)]);
@@ -1618,6 +1649,13 @@
     if (projLine7.length > 1)  datasets.push({ label: '7d trend', data: projLine7,  borderColor: '#1565a8', borderWidth: 1.5, borderDash: [3, 3], pointRadius: 0, tension: 0, fill: false, parsing: { xAxisKey: 'x', yAxisKey: 'y' } });
     if (projLine30.length > 1) datasets.push({ label: '30d trend', data: projLine30, borderColor: '#aaaaaa', borderWidth: 1.5, borderDash: [3, 3], pointRadius: 0, tension: 0, fill: false, parsing: { xAxisKey: 'x', yAxisKey: 'y' } });
 
+    // Render zoom buttons
+    document.getElementById('weight-chart-controls').innerHTML = ['2M','3M','6M','ALL'].map(z =>
+      `<button class="chart-zoom-btn${_chartZoom === z ? ' active' : ''}" data-zoom="${z}" onclick="setChartZoom('${z}')">${z}</button>`
+    ).join('');
+
+    const { min, max } = getChartRange(_chartZoom);
+
     if (weightChart) weightChart.destroy();
     weightChart = new Chart(canvas, {
       type: 'line',
@@ -1639,6 +1677,8 @@
           x: {
             type: 'time',
             time: { unit: 'week', displayFormats: { week: 'd MMM' } },
+            min,
+            max,
             ticks: { font: { family: 'DM Mono', size: 9 }, color: '#888480' },
             grid: { color: 'rgba(0,0,0,0.05)' }
           },
