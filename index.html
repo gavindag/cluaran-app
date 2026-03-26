@@ -490,7 +490,7 @@
       <div class="header-sub" id="date-label"></div>
     </div>
     <div style="display:flex;align-items:center;gap:14px;">
-      <div style="font-size:10px;color:var(--dim);letter-spacing:1px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 7px;">v2.5</div>
+      <div style="font-size:10px;color:var(--dim);letter-spacing:1px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 7px;">v2.6</div>
       <div id="saving-indicator">SAVING…</div>
       <button id="signout-btn" title="Sign out">SIGN OUT</button>
       <button id="settings-btn" title="Settings">⚙</button>
@@ -1468,6 +1468,9 @@
       const { min, max } = getChartRange(zoom, firstLogDay);
       weightChart.options.scales.x.min = min;
       weightChart.options.scales.x.max = max;
+      // Show/hide goal line based on zoom
+      const goalDataset = weightChart.data.datasets.find(d => d.label?.startsWith('Goal'));
+      if (goalDataset) goalDataset.hidden = !['6M', 'ALL'].includes(zoom);
       weightChart.update();
     }
   };
@@ -1674,6 +1677,7 @@
         pointRadius: 0,
         tension: 0,
         fill: false,
+        hidden: !['6M', 'ALL'].includes(_chartZoom),
         parsing: { xAxisKey: 'x', yAxisKey: 'y' }
       }
     ];
