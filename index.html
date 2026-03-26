@@ -253,7 +253,28 @@
     .entries-total-val { font-size: 16px; color: var(--amber); font-family: 'Bebas Neue'; letter-spacing: 1px; }
     .empty-msg { color: var(--muted); font-size: 13px; text-align: center; padding: 48px 0; font-style: italic; }
 
-    /* HISTORY */
+    /* HISTORY FILTER BAR */
+    #history-filter-bar {
+      margin-bottom: 16px;
+    }
+    #history-filter-label { font-size: 9px; color: var(--dim); letter-spacing: 2px; margin-bottom: 8px; }
+    #history-month-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+    .month-pill {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+      padding: 4px 10px; font-size: 10px; color: var(--muted); letter-spacing: 1px;
+      cursor: pointer; font-family: 'DM Mono'; transition: all 0.15s;
+    }
+    .month-pill:hover { border-color: var(--amber); color: var(--amber); }
+    .month-pill.active { background: rgba(184,112,0,0.08); border-color: var(--amber); color: var(--amber); }
+
+    /* HISTORY MONTH GROUP */
+    .hist-month-group { margin-bottom: 24px; }
+    .hist-month-header {
+      font-size: 9px; color: var(--dim); letter-spacing: 3px;
+      padding: 0 2px 8px; border-bottom: 1px solid var(--border); margin-bottom: 10px;
+      display: flex; justify-content: space-between;
+    }
+    .hist-month-summary { font-size: 9px; color: var(--dim); }
     .hist-day { margin-bottom: 12px; }
     .hist-day-header {
       display: flex; justify-content: space-between; align-items: center;
@@ -461,7 +482,7 @@
       <div class="header-sub" id="date-label"></div>
     </div>
     <div style="display:flex;align-items:center;gap:14px;">
-      <div style="font-size:9px;color:var(--border);letter-spacing:1px;">v1.8</div>
+      <div style="font-size:10px;color:var(--dim);letter-spacing:1px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 7px;">v1.9</div>
       <div id="saving-indicator">SAVING…</div>
       <button id="signout-btn" title="Sign out">SIGN OUT</button>
       <button id="settings-btn" title="Settings">⚙</button>
@@ -626,6 +647,10 @@
 
   <div id="tab-today"></div>
   <div id="tab-history" style="display:none">
+    <div id="history-filter-bar">
+      <div id="history-filter-label">SHOWING</div>
+      <div id="history-month-pills"></div>
+    </div>
     <div id="tab-history-days"></div>
   </div>
   <div id="tab-weight" style="display:none">
@@ -784,7 +809,31 @@
   }
 
   async function fetchHistory(excludeDay) {
+    // Fetch last 30 days only — used for deficit summary
     const res = await fetch(`${SUPABASE_URL}/rest/v1/calorie_log?day=neq.${excludeDay}&select=*&order=day.desc&limit=30`, { headers: getSBHeaders() });
+    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+    return await res.json();
+  }
+
+  async function fetchHistoryMonth(month) {
+    // Fetch all days in a specific YYYY-MM month
+    const from = `${month}-01`;
+    const toDate = new Date(parseInt(month.split('-')[0]), parseInt(month.split('-')[1]), 1); // 1st of next month
+    const to = toDate.toISOString().split('T')[0];
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/calorie_log?day=gte.${from}&day=lt.${to}&select=*&order=day.desc`,
+      { headers: getSBHeaders() }
+    );
+    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+    return await res.json();
+  }
+
+  async function fetchHistoryMonthIndex() {
+    // Fetch just day column to build the month pills — lightweight
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/calorie_log?select=day&order=day.desc&limit=365`,
+      { headers: getSBHeaders() }
+    );
     if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
     return await res.json();
   }
@@ -1095,42 +1144,99 @@
     chevron.classList.toggle('open', open);
   };
 
-  function renderHistory(rows) {
+  let _historyRows = [];
+  let _selectedMonth = null;
+  let _historyTabLoaded = false;
+  let _historyMonthIndex = []; // lightweight: just {day} objects
+
+  async function loadHistoryTab() {
+    if (_historyTabLoaded) return;
+    _historyTabLoaded = true;
+    try {
+      // Fetch lightweight index to build month pills
+      _historyMonthIndex = await fetchHistoryMonthIndex();
+      renderHistoryFilter(_historyMonthIndex);
+      // Default: load current month
+      const currentMonth = todayKey.slice(0, 7);
+      _selectedMonth = currentMonth;
+      renderHistoryFilter(_historyMonthIndex);
+      const rows = await fetchHistoryMonth(currentMonth);
+      _historyRows = rows;
+      renderHistoryDays(_historyRows);
+    } catch(e) {
+      document.getElementById('tab-history-days').innerHTML = `<div class="empty-msg">Failed to load history</div>`;
+    }
+  }
+
+  function renderHistoryFilter(index) {
+    const bar = document.getElementById('history-filter-bar');
+    if (!index || index.length === 0) { bar.style.display = 'none'; return; }
+    bar.style.display = 'block';
+    const months = [...new Set(index.map(r => r.day.slice(0, 7)))].sort().reverse();
+    const pillsEl = document.getElementById('history-month-pills');
+    pillsEl.innerHTML = months.map(m => {
+      const [y, mo] = m.split('-');
+      const label = new Date(parseInt(y), parseInt(mo) - 1).toLocaleDateString('en-GB', { month: 'short', year: '2-digit' });
+      return `<button class="month-pill${_selectedMonth === m ? ' active' : ''}" onclick="selectHistoryMonth('${m}')">${label.toUpperCase()}</button>`;
+    }).join('');
+  }
+
+  function buildDayHTML(row, i) {
+    const dayTotal = (row.entries || []).reduce((s, e) => s + e.cal, 0);
+    const budget = BASELINE + (row.active_cals || 0) - TARGET_DEFICIT;
+    const over = dayTotal > budget;
+    const id = `hist-entries-${i}`;
+    const openClass = i === 0 && _selectedMonth !== null ? " open" : "";
+    return `<div class="hist-day">
+      <div class="hist-day-header${openClass}" onclick="toggleHistDay(this, '${id}')">
+        <div class="hist-day-left">
+          <span class="hist-chevron">▶</span>
+          <span class="hist-day-label">${formatDate(row.day).toUpperCase()}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span class="hist-day-total" style="color:${over ? "var(--red)" : "var(--green)"}">${dayTotal.toLocaleString()} / ${budget.toLocaleString()} KCAL</span>
+          <button class="edit-active-btn" onclick="event.stopPropagation();editActiveCals('${row.day}', ${row.active_cals || 0})" title="Edit Garmin active cals">⌚ ${(row.active_cals || 0)}</button>
+          <button class="edit-active-btn" style="color:var(--amber);border-color:rgba(184,112,0,0.2);background:rgba(184,112,0,0.08);" onclick="event.stopPropagation();editWeight('${row.day}')" title="Edit weight">⚖</button>
+        </div>
+      </div>
+      <div class="hist-entries${openClass}" id="${id}">
+        ${(row.entries || []).map(e => `
+          <div class="hist-entry">
+            <span class="hist-entry-time">${e.time || ""}</span>
+            <span class="hist-entry-name">${e.name}</span>
+            <span class="hist-entry-cal">${e.cal}</span>
+          </div>`).join("")}
+      </div>
+    </div>`;
+  }
+
+  function renderHistoryDays(rows) {
     const el = document.getElementById("tab-history-days");
     if (!rows || rows.length === 0) {
-      el.innerHTML = `<div class="empty-msg">No history yet</div>`;
+      el.innerHTML = `<div class="empty-msg">No entries for this month</div>`;
       return;
     }
-    el.innerHTML = rows.map((row, i) => {
-      const dayTotal = (row.entries || []).reduce((s, e) => s + e.cal, 0);
-      const budget = BASELINE + (row.active_cals || 0) - TARGET_DEFICIT;
-      const over = dayTotal > budget;
-      const id = `hist-entries-${i}`;
-      // Most recent day open by default, rest collapsed
-      const openClass = i === 0 ? " open" : "";
-      return `<div class="hist-day">
-        <div class="hist-day-header${openClass}" onclick="toggleHistDay(this, '${id}')">
-          <div class="hist-day-left">
-            <span class="hist-chevron">▶</span>
-            <span class="hist-day-label">${formatDate(row.day).toUpperCase()}</span>
-          </div>
-          <div style="display:flex;align-items:center;gap:6px;">
-            <span class="hist-day-total" style="color:${over ? "var(--red)" : "var(--green)"}">${dayTotal.toLocaleString()} / ${budget.toLocaleString()} KCAL</span>
-            <button class="edit-active-btn" onclick="event.stopPropagation();editActiveCals('${row.day}', ${row.active_cals || 0})" title="Edit Garmin active cals">⌚ ${(row.active_cals || 0)}</button>
-            <button class="edit-active-btn" style="color:var(--amber);border-color:rgba(184,112,0,0.2);background:rgba(184,112,0,0.08);" onclick="event.stopPropagation();editWeight('${row.day}')" title="Edit weight">⚖</button>
-          </div>
-        </div>
-        <div class="hist-entries${openClass}" id="${id}">
-          ${(row.entries || []).map(e => `
-            <div class="hist-entry">
-              <span class="hist-entry-time">${e.time || ""}</span>
-              <span class="hist-entry-name">${e.name}</span>
-              <span class="hist-entry-cal">${e.cal}</span>
-            </div>`).join("")}
-        </div>
-      </div>`;
-    }).join("");
+    el.innerHTML = rows.map((row, i) => buildDayHTML(row, i)).join('');
   }
+
+  function renderHistory(rows) {
+    // Called from loadData with last 30 days — used only for deficit summary now
+    // History tab loads lazily via loadHistoryTab()
+    _historyRows = rows || [];
+  }
+
+  window.selectHistoryMonth = async function(month) {
+    _selectedMonth = month;
+    renderHistoryFilter(_historyMonthIndex);
+    document.getElementById('tab-history-days').innerHTML = `<div class="empty-msg" style="color:var(--dim)">Loading…</div>`;
+    try {
+      const rows = await fetchHistoryMonth(month);
+      _historyRows = rows;
+      renderHistoryDays(_historyRows);
+    } catch(e) {
+      document.getElementById('tab-history-days').innerHTML = `<div class="empty-msg">Failed to load</div>`;
+    }
+  };
 
   window.toggleHistDay = function(header, entriesId) {
     const entries = document.getElementById(entriesId);
@@ -1142,6 +1248,7 @@
   // --- DATA LOADING ---
   async function loadData() {
     hideDbError();
+    _historyTabLoaded = false; // force history to reload next time tab is opened
     try {
       const [todayRow, hist] = await Promise.all([fetchDay(todayKey), fetchHistory(todayKey)]);
       if (todayRow) {
@@ -1150,7 +1257,6 @@
         document.getElementById("active-input").value = activeCals || "";
       }
       renderEntries();
-      renderHistory(hist);
       renderDeficitSummary(hist);
       updateStats();
       updateActivityWarning();
@@ -1296,6 +1402,9 @@
         if (btn.dataset.tab === "weight" && !weightTabLoaded) {
           weightTabLoaded = true;
           loadWeightTab();
+        }
+        if (btn.dataset.tab === "history") {
+          loadHistoryTab();
         }
       });
     });
