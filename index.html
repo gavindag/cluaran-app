@@ -490,7 +490,7 @@
       <div class="header-sub" id="date-label"></div>
     </div>
     <div style="display:flex;align-items:center;gap:14px;">
-      <div style="font-size:10px;color:var(--dim);letter-spacing:1px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 7px;">v2.4</div>
+      <div style="font-size:10px;color:var(--dim);letter-spacing:1px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 7px;">v2.5</div>
       <div id="saving-indicator">SAVING…</div>
       <button id="signout-btn" title="Sign out">SIGN OUT</button>
       <button id="settings-btn" title="Settings">⚙</button>
@@ -1587,13 +1587,15 @@
       const currentWeight = parseFloat(latest.weight_kg);
       const todayStr = new Date().toISOString().split('T')[0];
       const points = [{ x: latest.day, y: currentWeight }];
-      // Project forward weekly until target weight or 2 years
+      // Project forward weekly until 1 week past target weight or 2 years
       let w = currentWeight;
+      let hitTarget = false;
       for (let week = 1; week <= 104; week++) {
         w = parseFloat((w - (avgDailyDeficit * 7 / 7700)).toFixed(2));
         const d = new Date(todayStr); d.setDate(d.getDate() + week * 7);
         points.push({ x: d.toISOString().split('T')[0], y: w });
-        if (w <= TARGET_WEIGHT) break;
+        if (hitTarget) break; // one extra point past target
+        if (w <= TARGET_WEIGHT) hitTarget = true;
       }
       return points;
     }
@@ -1631,6 +1633,13 @@
         ${projBlockHTML('BASED ON LAST 30 DAYS', proj30, '#888480', 30)}
       </div>`;
 
+    // Target weight horizontal line — spans from first log to well past target date
+    const farFuture = '2027-12-31';
+    const targetWeightLineData = [
+      { x: firstDay, y: TARGET_WEIGHT },
+      { x: farFuture, y: TARGET_WEIGHT }
+    ];
+
     // Datasets
     const datasets = [
       {
@@ -1651,6 +1660,17 @@
         borderColor: '#1a7a40',
         borderWidth: 1.5,
         borderDash: [5, 4],
+        pointRadius: 0,
+        tension: 0,
+        fill: false,
+        parsing: { xAxisKey: 'x', yAxisKey: 'y' }
+      },
+      {
+        label: `Goal ${TARGET_WEIGHT}kg`,
+        data: targetWeightLineData,
+        borderColor: 'rgba(26,122,64,0.35)',
+        borderWidth: 1,
+        borderDash: [2, 4],
         pointRadius: 0,
         tension: 0,
         fill: false,
