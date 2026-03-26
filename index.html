@@ -490,7 +490,7 @@
       <div class="header-sub" id="date-label"></div>
     </div>
     <div style="display:flex;align-items:center;gap:14px;">
-      <div style="font-size:10px;color:var(--dim);letter-spacing:1px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 7px;">v2.1</div>
+      <div style="font-size:10px;color:var(--dim);letter-spacing:1px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 7px;">v2.2</div>
       <div id="saving-indicator">SAVING…</div>
       <button id="signout-btn" title="Sign out">SIGN OUT</button>
       <button id="settings-btn" title="Settings">⚙</button>
@@ -1457,7 +1457,7 @@
   }
 
   let weightChart = null;
-  let _chartZoom = '2M'; // default: 2 months
+  let _chartZoom = '1M'; // default
 
   window.setChartZoom = function(zoom) {
     _chartZoom = zoom;
@@ -1473,25 +1473,19 @@
 
   function getChartRange(zoom, firstLogDay) {
     const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
     if (zoom === 'ALL') {
-      // Show from first weigh-in to target date
       return { min: firstLogDay, max: TARGET_DATE };
     }
-    // For windowed views: min = first log day or N months back (whichever is more recent),
-    // max = TARGET_DATE or N months forward (whichever is sooner)
-    const monthsMap = { '2M': 2, '3M': 3, '6M': 6 };
-    const months = monthsMap[zoom] || 2;
-    const minDate = new Date(today); minDate.setMonth(today.getMonth() - Math.floor(months * 0.25));
-    const maxDate = new Date(today); maxDate.setMonth(today.getMonth() + Math.ceil(months * 0.75));
-    // Don't go beyond target date
-    const maxCap = new Date(Math.min(maxDate, new Date(TARGET_DATE)));
-    // Don't go before first log
-    const minCap = firstLogDay ? new Date(Math.max(minDate, new Date(firstLogDay))) : minDate;
-    return {
-      min: minCap.toISOString().split('T')[0],
-      max: maxCap.toISOString().split('T')[0]
-    };
+    const monthsMap = { '1M': 1, '3M': 3, '6M': 6 };
+    const months = monthsMap[zoom] || 1;
+    const half = months / 2;
+    // Centre the window on today
+    const min = new Date(today); min.setMonth(today.getMonth() - Math.ceil(half));
+    const max = new Date(today); max.setMonth(today.getMonth() + Math.floor(half));
+    // Don't go before first log or beyond target date
+    const minCapped = firstLogDay && min < new Date(firstLogDay) ? firstLogDay : min.toISOString().split('T')[0];
+    const maxCapped = max > new Date(TARGET_DATE) ? TARGET_DATE : max.toISOString().split('T')[0];
+    return { min: minCapped, max: maxCapped };
   }
 
   async function loadWeightTab() {
@@ -1664,7 +1658,7 @@
     if (projLine30.length > 1) datasets.push({ label: '30d trend', data: projLine30, borderColor: '#aaaaaa', borderWidth: 1.5, borderDash: [3, 3], pointRadius: 0, tension: 0, fill: false, parsing: { xAxisKey: 'x', yAxisKey: 'y' } });
 
     // Render zoom buttons
-    document.getElementById('weight-chart-controls').innerHTML = ['2M','3M','6M','ALL'].map(z =>
+    document.getElementById('weight-chart-controls').innerHTML = ['1M','3M','6M','ALL'].map(z =>
       `<button class="chart-zoom-btn${_chartZoom === z ? ' active' : ''}" data-zoom="${z}" onclick="setChartZoom('${z}')">${z}</button>`
     ).join('');
 
