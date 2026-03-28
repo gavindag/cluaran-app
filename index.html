@@ -501,7 +501,7 @@
       <div class="header-sub" id="date-label"></div>
     </div>
     <div style="display:flex;align-items:center;gap:14px;">
-      <div style="font-size:10px;color:var(--dim);letter-spacing:1px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 7px;">v3.6</div>
+      <div style="font-size:10px;color:var(--dim);letter-spacing:1px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 7px;">v3.7</div>
       <div id="saving-indicator">SAVING…</div>
       <button id="signout-btn" title="Sign out">SIGN OUT</button>
       <button id="settings-btn" title="Settings">⚙</button>
@@ -601,10 +601,15 @@
         <div class="track-val" id="required-deficit-val">--</div>
         <div class="track-unit">kcal/day needed</div>
       </div>
-      <div class="track-item">
-        <div class="track-label">ACTUAL DEFICIT RATE</div>
+      <div class="track-item" id="deficit-weight-item">
+        <div class="track-label">DEFICIT (WEIGHT)</div>
         <div class="track-val" id="actual-deficit-val">--</div>
         <div class="track-unit">kcal/day sustained</div>
+      </div>
+      <div class="track-item" id="deficit-logged-item">
+        <div class="track-label">DEFICIT (LOGGED)</div>
+        <div class="track-val" id="logged-deficit-val">--</div>
+        <div class="track-unit">kcal/day from log</div>
       </div>
     </div>
     <div id="activity-warning" style="display:none; margin-top:14px; padding-top:14px; border-top:1px solid var(--border);">
@@ -728,6 +733,8 @@
   let _7dayAvgActive = null; // populated by updateActivityWarning, used by updateOnTrack
   let _smoothedDeficit = 600; // calculated dynamically from weight log; used in place of TARGET_DEFICIT
   let _latestWeight = null;   // most recent weight log entry
+  let _loggedDeficit = null;  // deficit implied by calorie log: baseline + 7day avg active - 7day avg consumed
+  let _deficitSource = 'logged'; // 'weight' or 'logged' — which is being used for on-track comparison
 
   // Calculate required deficit for a given weight/date context
   function calcRequiredDeficit(weightKg, asOfDate) {
@@ -768,6 +775,20 @@
   function formatDate(key) {
     const d = new Date(key + "T12:00:00");
     return d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+  }
+
+  // Compute deficit implied by calorie log: baseline + 7-day avg active - 7-day avg consumed
+  // histRows: array of calorie_log rows (last 30 days), sorted desc
+  function computeLoggedDeficit(histRows) {
+    if (!histRows || histRows.length === 0) return null;
+    const today = new Date(); today.setHours(0,0,0,0);
+    const cutoff = new Date(today); cutoff.setDate(today.getDate() - 7);
+    const cutoffStr = cutoff.toISOString().split('T')[0];
+    const recent = histRows.filter(r => r.day >= cutoffStr && r.day < todayKey && (r.entries||[]).length > 0);
+    if (recent.length === 0) return null;
+    const avgConsumed = recent.reduce((s, r) => s + (r.entries||[]).reduce((a,e) => a+e.cal, 0), 0) / recent.length;
+    const avgActive   = recent.reduce((s, r) => s + (r.active_cals||0), 0) / recent.length;
+    return Math.round(BASELINE + avgActive - avgConsumed);
   }
 
   function getDailyBudget() { return BASELINE + activeCals - _smoothedDeficit; }
@@ -992,6 +1013,9 @@
     const daysEl    = document.getElementById('track-days');
     const reqEl     = document.getElementById('required-deficit-val');
     const actEl     = document.getElementById('actual-deficit-val');
+    const logEl     = document.getElementById('logged-deficit-val');
+    const weightItem = document.getElementById('deficit-weight-item');
+    const loggedItem = document.getElementById('deficit-logged-item');
 
     const today = new Date(); today.setHours(0,0,0,0);
     const target = new Date(TARGET_DATE + 'T00:00:00');
@@ -1001,7 +1025,14 @@
 
     toLoseEl.textContent = kgToLose > 0 ? kgToLose.toFixed(1) : '0';
     daysEl.textContent   = daysLeft > 0 ? daysLeft : '0';
-    if (actEl) actEl.textContent = _smoothedDeficit > 0 ? _smoothedDeficit.toLocaleString() : '--';
+
+    // Populate both deficit figures
+    if (actEl) actEl.textContent = _smoothedDeficit > 0 && _deficitSource === 'weight' ? _smoothedDeficit.toLocaleString() : (computeSmoothedDeficit ? _smoothedDeficit.toLocaleString() : '--');
+    if (logEl) logEl.textContent = _loggedDeficit !== null ? _loggedDeficit.toLocaleString() : '--';
+
+    // Dim the one not being used for comparison
+    if (weightItem) weightItem.style.opacity = _deficitSource === 'weight' ? '1' : '0.4';
+    if (loggedItem) loggedItem.style.opacity = _deficitSource === 'logged' ? '1' : '0.4';
 
     if (daysLeft <= 0 || kgToLose <= 0) {
       badge.className = 'no-data'; badge.textContent = 'NO DATA';
@@ -1013,10 +1044,10 @@
     const requiredDeficit = Math.round((kgToLose * 7700) / daysLeft);
     reqEl.textContent = requiredDeficit.toLocaleString();
 
-    // Compare against _smoothedDeficit — your actual sustained rate from food budget
-    // _smoothedDeficit is derived from weight log history, NOT from target settings
-    // so changing target weight/date doesn't artificially move it
-    const diff = _smoothedDeficit - requiredDeficit;
+    // Effective deficit: weight-based if enough data, logged otherwise
+    const effectiveDeficit = _smoothedDeficit;
+    const diff = effectiveDeficit - requiredDeficit;
+
     if (diff >= 0) {
       badge.className = 'on-track';
       badge.textContent = diff > 50 ? 'AHEAD' : 'ON TRACK';
@@ -1553,19 +1584,36 @@
 
   async function loadWeightTab() {
     const [logs, calorieHist] = await Promise.all([fetchWeightLog(), fetchHistory(todayKey)]);
-    // Compute smoothed deficit from weight history and update global
+
+    // Compute logged deficit from calorie history
+    _loggedDeficit = computeLoggedDeficit(calorieHist);
+
+    // Compute weight-based deficit — need 2+ entries in last 7 days
+    const today = new Date(); today.setHours(0,0,0,0);
+    const cutoff = new Date(today); cutoff.setDate(today.getDate() - 7);
+    const cutoffStr = cutoff.toISOString().split('T')[0];
+    const recentWeightLogs = logs ? logs.filter(l => l.day >= cutoffStr) : [];
+    const hasEnoughWeightData = recentWeightLogs.length >= 2;
+
     if (logs && logs.length > 0) {
       _latestWeight = logs[logs.length - 1].weight_kg;
       _smoothedDeficit = computeSmoothedDeficit(logs);
     }
+
+    // Decide source for on-track comparison
+    if (hasEnoughWeightData) {
+      _deficitSource = 'weight';
+    } else if (_loggedDeficit !== null) {
+      _deficitSource = 'logged';
+      _smoothedDeficit = _loggedDeficit; // use logged as effective deficit for budget too
+    }
+
     renderWeightChart(logs, calorieHist);
     // Pre-fill weight input with today's weight if logged
     const todayLog = logs.find(l => l.day === todayKey);
     if (todayLog) document.getElementById("weight-input").value = todayLog.weight_kg;
     // Update on-track panel with latest weight
-    if (logs.length > 0) {
-      updateOnTrack(_latestWeight);
-    }
+    updateOnTrack(_latestWeight);
     // Refresh stats now that _smoothedDeficit is updated
     updateStats();
   }
