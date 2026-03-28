@@ -501,7 +501,7 @@
       <div class="header-sub" id="date-label"></div>
     </div>
     <div style="display:flex;align-items:center;gap:14px;">
-      <div style="font-size:10px;color:var(--dim);letter-spacing:1px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 7px;">v3.4</div>
+      <div style="font-size:10px;color:var(--dim);letter-spacing:1px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 7px;">v3.6</div>
       <div id="saving-indicator">SAVING…</div>
       <button id="signout-btn" title="Sign out">SIGN OUT</button>
       <button id="settings-btn" title="Settings">⚙</button>
@@ -527,7 +527,6 @@
       <button id="settings-close">✕</button>
     </div>
     <div class="settings-body">
-      <div class="settings-section">CALORIE TARGETS</div>
       <div class="settings-row">
         <label class="settings-label">BASELINE BURN <span class="settings-hint">resting kcal/day</span></label>
         <div class="settings-input-wrap">
@@ -535,14 +534,6 @@
           <span class="settings-unit">kcal</span>
         </div>
       </div>
-      <div class="settings-row">
-        <label class="settings-label">CALCULATED DEFICIT REQUIRED <span class="settings-hint">auto-calculated</span></label>
-        <div class="settings-input-wrap">
-          <span id="s-deficit-display" style="font-family:'Bebas Neue';font-size:20px;color:var(--amber);letter-spacing:1px;">--</span>
-          <span class="settings-unit">kcal/day</span>
-        </div>
-      </div>
-      <div class="settings-section" style="margin-top:20px;">WEIGHT TARGET</div>
       <div class="settings-row">
         <label class="settings-label">TARGET WEIGHT</label>
         <div class="settings-input-wrap">
@@ -609,6 +600,11 @@
         <div class="track-label">REQUIRED DEFICIT</div>
         <div class="track-val" id="required-deficit-val">--</div>
         <div class="track-unit">kcal/day needed</div>
+      </div>
+      <div class="track-item">
+        <div class="track-label">ACTUAL DEFICIT RATE</div>
+        <div class="track-val" id="actual-deficit-val">--</div>
+        <div class="track-unit">kcal/day sustained</div>
       </div>
     </div>
     <div id="activity-warning" style="display:none; margin-top:14px; padding-top:14px; border-top:1px solid var(--border);">
@@ -995,6 +991,7 @@
     const toLoseEl  = document.getElementById('track-to-lose');
     const daysEl    = document.getElementById('track-days');
     const reqEl     = document.getElementById('required-deficit-val');
+    const actEl     = document.getElementById('actual-deficit-val');
 
     const today = new Date(); today.setHours(0,0,0,0);
     const target = new Date(TARGET_DATE + 'T00:00:00');
@@ -1004,6 +1001,7 @@
 
     toLoseEl.textContent = kgToLose > 0 ? kgToLose.toFixed(1) : '0';
     daysEl.textContent   = daysLeft > 0 ? daysLeft : '0';
+    if (actEl) actEl.textContent = _smoothedDeficit > 0 ? _smoothedDeficit.toLocaleString() : '--';
 
     if (daysLeft <= 0 || kgToLose <= 0) {
       badge.className = 'no-data'; badge.textContent = 'NO DATA';
@@ -1313,7 +1311,6 @@
 
     function openSettings() {
       document.getElementById("s-baseline").value      = BASELINE;
-      document.getElementById("s-deficit-display").textContent = _smoothedDeficit.toLocaleString();
       document.getElementById("s-target-weight").value = TARGET_WEIGHT;
       document.getElementById("s-target-date").value   = TARGET_DATE;
       settingsPanel.style.display = "block";
@@ -1560,9 +1557,6 @@
     if (logs && logs.length > 0) {
       _latestWeight = logs[logs.length - 1].weight_kg;
       _smoothedDeficit = computeSmoothedDeficit(logs);
-      // Update read-only display in settings if panel is open
-      const dispEl = document.getElementById('s-deficit-display');
-      if (dispEl) dispEl.textContent = _smoothedDeficit.toLocaleString();
     }
     renderWeightChart(logs, calorieHist);
     // Pre-fill weight input with today's weight if logged
