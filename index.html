@@ -501,7 +501,7 @@
       <div class="header-sub" id="date-label"></div>
     </div>
     <div style="display:flex;align-items:center;gap:14px;">
-      <div style="font-size:10px;color:var(--dim);letter-spacing:1px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 7px;">v3.3</div>
+      <div style="font-size:10px;color:var(--dim);letter-spacing:1px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 7px;">v3.4</div>
       <div id="saving-indicator">SAVING…</div>
       <button id="signout-btn" title="Sign out">SIGN OUT</button>
       <button id="settings-btn" title="Settings">⚙</button>
@@ -609,16 +609,6 @@
         <div class="track-label">REQUIRED DEFICIT</div>
         <div class="track-val" id="required-deficit-val">--</div>
         <div class="track-unit">kcal/day needed</div>
-      </div>
-      <div class="track-item">
-        <div class="track-label">YOUR TARGET DEFICIT</div>
-        <div class="track-val" id="track-your-deficit">--</div>
-        <div class="track-unit">kcal/day set</div>
-      </div>
-      <div class="track-item">
-        <div class="track-label">7-DAY AVG ACTIVE</div>
-        <div class="track-val" id="track-avg-active">--</div>
-        <div class="track-unit">kcal/day actual</div>
       </div>
     </div>
     <div id="activity-warning" style="display:none; margin-top:14px; padding-top:14px; border-top:1px solid var(--border);">
@@ -754,25 +744,24 @@
     return Math.round((kgToLose * 7700) / daysLeft);
   }
 
-  // Compute 7-day smoothed deficit from weight log history
+  // Compute smoothed deficit from weight log history.
+  // Uses actual weight loss rate over recent entries to estimate sustained deficit,
+  // independent of TARGET_WEIGHT and TARGET_DATE so changing targets doesn't move it.
   // weightLogs: array of {day, weight_kg} sorted ascending
   function computeSmoothedDeficit(weightLogs) {
-    if (!weightLogs || weightLogs.length === 0) return _smoothedDeficit; // keep last value
-    // Build lookup of most recent weight on or before each of the last 7 days
-    const today = new Date(); today.setHours(0,0,0,0);
-    const dailyDeficits = [];
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(today); d.setDate(today.getDate() - i);
-      const dayStr = d.toISOString().split('T')[0];
-      // Most recent log on or before this day
-      const log = [...weightLogs].reverse().find(l => l.day <= dayStr);
-      if (log) {
-        const def = calcRequiredDeficit(log.weight_kg, dayStr);
-        if (def !== null && def > 0) dailyDeficits.push(def);
-      }
-    }
-    if (dailyDeficits.length === 0) return _smoothedDeficit;
-    return Math.round(dailyDeficits.reduce((s, v) => s + v, 0) / dailyDeficits.length);
+    if (!weightLogs || weightLogs.length < 2) return _smoothedDeficit; // keep last value
+    // Use up to last 14 days of weight entries to estimate rate
+    const recent = weightLogs.slice(-14);
+    if (recent.length < 2) return _smoothedDeficit;
+    const first = recent[0];
+    const last  = recent[recent.length - 1];
+    const daysDiff = Math.round((new Date(last.day) - new Date(first.day)) / 86400000);
+    if (daysDiff < 1) return _smoothedDeficit;
+    const kgLost = first.weight_kg - last.weight_kg;
+    // kcal deficit per day implied by actual weight loss rate
+    const impliedDeficit = Math.round((kgLost * 7700) / daysDiff);
+    // Clamp to a sensible range (200–1500 kcal/day)
+    return Math.max(200, Math.min(1500, impliedDeficit));
   }
 
   let entries = [];
@@ -997,17 +986,15 @@
     valEl.textContent = avg.toLocaleString();
     noteEl.textContent = count < 7 ? `(${count} days)` : '';
 
-    // Update weight target panel with real avg
-    document.getElementById('track-avg-active').textContent = avg.toLocaleString();
+    // Update weight target panel with real avg — element removed in v3.4, keeping _7dayAvgActive only
     updateOnTrack();
   }
 
   function updateOnTrack(currentWeight) {
-    const badge   = document.getElementById('on-track-badge');
+    const badge     = document.getElementById('on-track-badge');
     const toLoseEl  = document.getElementById('track-to-lose');
     const daysEl    = document.getElementById('track-days');
     const reqEl     = document.getElementById('required-deficit-val');
-    const yourEl    = document.getElementById('track-your-deficit');
 
     const today = new Date(); today.setHours(0,0,0,0);
     const target = new Date(TARGET_DATE + 'T00:00:00');
@@ -1017,9 +1004,6 @@
 
     toLoseEl.textContent = kgToLose > 0 ? kgToLose.toFixed(1) : '0';
     daysEl.textContent   = daysLeft > 0 ? daysLeft : '0';
-    yourEl.textContent   = _smoothedDeficit.toLocaleString();
-    const avgActive = _7dayAvgActive !== null ? _7dayAvgActive : 0;
-    document.getElementById('track-avg-active').textContent = avgActive > 0 ? avgActive.toLocaleString() : '--';
 
     if (daysLeft <= 0 || kgToLose <= 0) {
       badge.className = 'no-data'; badge.textContent = 'NO DATA';
@@ -1027,30 +1011,23 @@
       return;
     }
 
-    // 7700 kcal per kg of fat
-    // Required deficit = total kcal to lose / days, then expressed as deficit from total burn
-    const totalKcalToLose = kgToLose * 7700;
-    const requiredDeficit = Math.round(totalKcalToLose / daysLeft);
-    // Effective deficit = baseline + avg active - food budget
-    // Your deficit setting is already expressed as kcal below total burn (baseline + avg active)
-    // So compare directly, but show required in same terms
+    // Required deficit: what you need to hit target from current weight
+    const requiredDeficit = Math.round((kgToLose * 7700) / daysLeft);
     reqEl.textContent = requiredDeficit.toLocaleString();
 
-    // effective deficit = what you'd achieve given baseline + avg active - smoothed deficit food budget
-    const effectiveDeficit = _smoothedDeficit; // already in same terms as requiredDeficit
-    const diff = effectiveDeficit - requiredDeficit;
+    // Compare against _smoothedDeficit — your actual sustained rate from food budget
+    // _smoothedDeficit is derived from weight log history, NOT from target settings
+    // so changing target weight/date doesn't artificially move it
+    const diff = _smoothedDeficit - requiredDeficit;
     if (diff >= 0) {
-      // surplus — on track or ahead
       badge.className = 'on-track';
       badge.textContent = diff > 50 ? 'AHEAD' : 'ON TRACK';
       reqEl.style.color = 'var(--green)';
     } else if (diff >= -200) {
-      // slightly behind
       badge.className = 'behind';
       badge.textContent = 'CLOSE';
       reqEl.style.color = 'var(--orange)';
     } else {
-      // significantly behind
       badge.className = 'off-track';
       badge.textContent = 'OFF TRACK';
       reqEl.style.color = 'var(--red)';
