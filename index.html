@@ -509,7 +509,7 @@
       <div class="header-sub" id="date-label"></div>
     </div>
     <div style="display:flex;align-items:center;gap:14px;">
-      <div style="font-size:10px;color:var(--dim);letter-spacing:1px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 7px;">v4.1</div>
+      <div style="font-size:10px;color:var(--dim);letter-spacing:1px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 7px;">v4.2</div>
       <div id="saving-indicator">SAVING…</div>
       <button id="signout-btn" title="Sign out">SIGN OUT</button>
       <button id="settings-btn" title="Settings">⚙</button>
@@ -654,13 +654,11 @@
   <div id="deficit-summary"></div>
 
   <div class="tabs">
-    <button class="tab-btn active" data-tab="today">TODAY</button>
-    <button class="tab-btn" data-tab="history">HISTORY</button>
+    <button class="tab-btn active" data-tab="history">LOG</button>
     <button class="tab-btn" data-tab="weight">WEIGHT</button>
   </div>
 
-  <div id="tab-today"></div>
-  <div id="tab-history" style="display:none">
+  <div id="tab-history">
     <div id="history-filter-bar">
       <div id="history-filter-label">SHOWING</div>
       <div id="history-month-pills"></div>
@@ -1111,23 +1109,29 @@
   }
 
   function renderEntries() {
-    const el = document.getElementById("tab-today");
+    const el = document.getElementById("today-entries");
+    if (!el) return; // today row not yet rendered
+    const budget = getDailyBudget();
     if (entries.length === 0) {
-      el.innerHTML = `<div class="empty-msg">Nothing logged yet — describe what you've eaten above</div>`;
-      return;
+      el.innerHTML = `<div class="hist-entry" style="color:var(--muted);font-style:italic;padding:12px 14px;">Nothing logged yet — describe what you've eaten above</div>`;
+    } else {
+      el.innerHTML = entries.map(e => `
+        <div class="hist-entry" style="display:flex;align-items:center;">
+          <span class="hist-entry-time">${e.time || ""}</span>
+          <span class="hist-entry-name" style="flex:1">${e.name}</span>
+          <span class="hist-entry-cal">${e.cal}</span>
+          <button class="del-btn" style="opacity:1;margin-left:8px;" onclick="removeEntry('${e.id}')">✕</button>
+        </div>
+      `).join("");
     }
-    el.innerHTML = entries.map(e => `
-      <div class="entry-row" data-id="${e.id}">
-        <span class="entry-time">${e.time || ""}</span>
-        <span class="entry-name">${e.name}</span>
-        <span class="entry-cal">${e.cal}</span>
-        <button class="del-btn" onclick="removeEntry('${e.id}')">✕</button>
-      </div>
-    `).join("") + `
-      <div class="entries-total">
-        <span class="entries-total-label">TOTAL</span>
-        <span class="entries-total-val" style="color:${getTotal() > getDailyBudget() ? "var(--red)" : "var(--amber)"}">${getTotal().toLocaleString()} KCAL</span>
-      </div>`;
+    // Update today's header total
+    const total = getTotal();
+    const over = total > budget;
+    const todayTotalEl = document.getElementById("today-header-total");
+    if (todayTotalEl) {
+      todayTotalEl.textContent = `${total.toLocaleString()} / ${budget.toLocaleString()} KCAL`;
+      todayTotalEl.style.color = over ? "var(--red)" : "var(--green)";
+    }
     updateStats();
   }
 
@@ -1275,6 +1279,34 @@
     return BASELINE + active - requiredDeficit;
   }
 
+  function buildTodayHTML() {
+    const budget = getDailyBudget();
+    const total = getTotal();
+    const over = total > budget;
+    const entriesHTML = entries.length === 0
+      ? `<div class="hist-entry" style="color:var(--muted);font-style:italic;padding:12px 14px;">Nothing logged yet — describe what you've eaten above</div>`
+      : entries.map(e => `
+        <div class="hist-entry" style="display:flex;align-items:center;">
+          <span class="hist-entry-time">${e.time || ""}</span>
+          <span class="hist-entry-name" style="flex:1">${e.name}</span>
+          <span class="hist-entry-cal">${e.cal}</span>
+          <button class="del-btn" style="opacity:1;margin-left:8px;" onclick="removeEntry('${e.id}')">✕</button>
+        </div>`).join("");
+    return `<div class="hist-day" id="today-row">
+      <div class="hist-day-header open">
+        <div class="hist-day-left">
+          <span class="hist-day-label" style="color:var(--amber)">TODAY</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span id="today-header-total" class="hist-day-total" style="color:${over ? "var(--red)" : "var(--green)"}">${total.toLocaleString()} / ${budget.toLocaleString()} KCAL</span>
+          <button class="edit-active-btn" onclick="editActiveCals('${todayKey}', ${activeCals})" title="Edit Garmin active cals">⌚ ${activeCals}</button>
+          <button class="edit-active-btn" style="color:var(--amber);border-color:rgba(184,112,0,0.2);background:rgba(184,112,0,0.08);" onclick="editWeight('${todayKey}')" title="Edit weight">⚖</button>
+        </div>
+      </div>
+      <div class="hist-entries open" id="today-entries">${entriesHTML}</div>
+    </div>`;
+  }
+
   function buildDayHTML(row, i) {
     const dayTotal = (row.entries || []).reduce((s, e) => s + e.cal, 0);
     const budget = getBudgetForDay(row.day, row.active_cals);
@@ -1306,11 +1338,15 @@
 
   function renderHistoryDays(rows) {
     const el = document.getElementById("tab-history-days");
-    if (!rows || rows.length === 0) {
+    const isCurrentMonth = _selectedMonth === todayKey.slice(0, 7);
+    const todayHTML = isCurrentMonth ? buildTodayHTML() : '';
+    // Filter out today from history rows (it's shown separately at top)
+    const histRows = (rows || []).filter(r => r.day !== todayKey);
+    if (!histRows.length && !isCurrentMonth) {
       el.innerHTML = `<div class="empty-msg">No entries for this month</div>`;
       return;
     }
-    el.innerHTML = rows.map((row, i) => buildDayHTML(row, i)).join('');
+    el.innerHTML = todayHTML + histRows.map((row, i) => buildDayHTML(row, i)).join('');
   }
 
   function renderHistory(rows) {
@@ -1342,7 +1378,6 @@
   // --- DATA LOADING ---
   async function loadData() {
     hideDbError();
-    _historyTabLoaded = false; // force history to reload next time tab is opened
     try {
       const [todayRow, hist] = await Promise.all([fetchDay(todayKey), fetchHistory(todayKey)]);
       let todayHasActiveCals = false;
@@ -1381,6 +1416,7 @@
     updateStats();
     await loadData();
     loadWeightTab();
+    loadHistoryTab(); // load history on startup — today is shown as first row
 
     // Sign out
     document.getElementById("signout-btn").addEventListener("click", () => {
@@ -1568,15 +1604,11 @@
       btn.addEventListener("click", () => {
         document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
         btn.classList.add("active");
-        document.getElementById("tab-today").style.display = btn.dataset.tab === "today" ? "block" : "none";
         document.getElementById("tab-history").style.display = btn.dataset.tab === "history" ? "block" : "none";
         document.getElementById("tab-weight").style.display = btn.dataset.tab === "weight" ? "block" : "none";
         if (btn.dataset.tab === "weight" && !weightTabLoaded) {
           weightTabLoaded = true;
           loadWeightTab();
-        }
-        if (btn.dataset.tab === "history") {
-          loadHistoryTab();
         }
       });
     });
@@ -1928,13 +1960,25 @@
       const newVal = parseInt(document.getElementById('edit-active-input').value) || 0;
       setSaving(true);
       try {
-        // fetch existing entries for that day first
         const res = await fetch(`${SUPABASE_URL}/rest/v1/calorie_log?day=eq.${day}&select=*`, { headers: getSBHeaders() });
         const rows = await res.json();
         const existingEntries = rows[0] ? rows[0].entries : [];
         await upsertDay(day, existingEntries, newVal);
         modal.classList.remove('open');
-        await loadData();
+        if (day === todayKey) {
+          activeCals = newVal;
+          document.getElementById("active-input").value = newVal || "";
+          _activeCalsIsDefault = false;
+          updateGarminBarState();
+          renderEntries();
+          updateStats();
+        } else {
+          // Refresh history rows for that month
+          const month = day.slice(0, 7);
+          const updatedRows = await fetchHistoryMonth(month);
+          _historyRows = updatedRows;
+          renderHistoryDays(_historyRows);
+        }
       } catch(e) { showDbError(e.message); }
       setSaving(false);
     };
@@ -1947,7 +1991,6 @@
   window.editWeight = async function(day) {
     const modal = document.getElementById('edit-weight-modal');
     document.getElementById('edit-weight-day').textContent = formatDate(day).toUpperCase();
-    // Pre-fill with existing weight if any
     try {
       const res = await fetch(`${SUPABASE_URL}/rest/v1/weight_log?day=eq.${day}&select=weight_kg`, { headers: getSBHeaders() });
       const rows = await res.json();
@@ -1963,7 +2006,7 @@
         await upsertWeight(day, val);
         modal.classList.remove('open');
         weightTabLoaded = false;
-        await loadWeightTab(); // recalculates smoothed deficit
+        await loadWeightTab();
         updateStats();
       } catch(e) { showDbError(e.message); }
       setSaving(false);
