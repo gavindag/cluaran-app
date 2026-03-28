@@ -501,7 +501,7 @@
       <div class="header-sub" id="date-label"></div>
     </div>
     <div style="display:flex;align-items:center;gap:14px;">
-      <div style="font-size:10px;color:var(--dim);letter-spacing:1px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 7px;">v3.2</div>
+      <div style="font-size:10px;color:var(--dim);letter-spacing:1px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 7px;">v3.3</div>
       <div id="saving-indicator">SAVING…</div>
       <button id="signout-btn" title="Sign out">SIGN OUT</button>
       <button id="settings-btn" title="Settings">⚙</button>
@@ -1012,7 +1012,7 @@
     const today = new Date(); today.setHours(0,0,0,0);
     const target = new Date(TARGET_DATE + 'T00:00:00');
     const daysLeft = Math.round((target - today) / 86400000);
-    const weightNow = currentWeight || START_WEIGHT;
+    const weightNow = currentWeight || _latestWeight || START_WEIGHT;
     const kgToLose = parseFloat((weightNow - TARGET_WEIGHT).toFixed(1));
 
     toLoseEl.textContent = kgToLose > 0 ? kgToLose.toFixed(1) : '0';
@@ -1076,7 +1076,7 @@
     document.getElementById("stat-active").className = `stat-val${activeCals > 0 ? " active" : ""}`;
     document.getElementById("stat-deficit").textContent = (BASELINE + activeCals - total).toLocaleString();
     document.getElementById("stat-items").textContent = entries.length;
-    updateOnTrack();
+    updateOnTrack(_latestWeight);
   }
 
   function renderEntries() {
