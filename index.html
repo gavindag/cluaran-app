@@ -501,7 +501,7 @@
       <div class="header-sub" id="date-label"></div>
     </div>
     <div style="display:flex;align-items:center;gap:14px;">
-      <div style="font-size:10px;color:var(--dim);letter-spacing:1px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 7px;">v3.1</div>
+      <div style="font-size:10px;color:var(--dim);letter-spacing:1px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 7px;">v3.2</div>
       <div id="saving-indicator">SAVING…</div>
       <button id="signout-btn" title="Sign out">SIGN OUT</button>
       <button id="settings-btn" title="Settings">⚙</button>
@@ -536,10 +536,10 @@
         </div>
       </div>
       <div class="settings-row">
-        <label class="settings-label">TARGET DEFICIT <span class="settings-hint">kcal/day below burn</span></label>
+        <label class="settings-label">CALCULATED DEFICIT REQUIRED <span class="settings-hint">auto-calculated</span></label>
         <div class="settings-input-wrap">
-          <input type="number" id="s-deficit" class="settings-input" placeholder="600">
-          <span class="settings-unit">kcal</span>
+          <span id="s-deficit-display" style="font-family:'Bebas Neue';font-size:20px;color:var(--amber);letter-spacing:1px;">--</span>
+          <span class="settings-unit">kcal/day</span>
         </div>
       </div>
       <div class="settings-section" style="margin-top:20px;">WEIGHT TARGET</div>
@@ -736,11 +736,44 @@
 
   // Settable — defaults, overridden by Supabase settings
   let BASELINE = 2282;
-  let TARGET_DEFICIT = 600;
   let TARGET_WEIGHT = 86;
   let START_WEIGHT = 102;
   let TARGET_DATE = "2026-07-01";
   let _7dayAvgActive = null; // populated by updateActivityWarning, used by updateOnTrack
+  let _smoothedDeficit = 600; // calculated dynamically from weight log; used in place of TARGET_DEFICIT
+  let _latestWeight = null;   // most recent weight log entry
+
+  // Calculate required deficit for a given weight/date context
+  function calcRequiredDeficit(weightKg, asOfDate) {
+    const today = new Date(asOfDate + 'T00:00:00');
+    const target = new Date(TARGET_DATE + 'T00:00:00');
+    const daysLeft = Math.round((target - today) / 86400000);
+    if (daysLeft <= 0) return null;
+    const kgToLose = weightKg - TARGET_WEIGHT;
+    if (kgToLose <= 0) return 0;
+    return Math.round((kgToLose * 7700) / daysLeft);
+  }
+
+  // Compute 7-day smoothed deficit from weight log history
+  // weightLogs: array of {day, weight_kg} sorted ascending
+  function computeSmoothedDeficit(weightLogs) {
+    if (!weightLogs || weightLogs.length === 0) return _smoothedDeficit; // keep last value
+    // Build lookup of most recent weight on or before each of the last 7 days
+    const today = new Date(); today.setHours(0,0,0,0);
+    const dailyDeficits = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(today); d.setDate(today.getDate() - i);
+      const dayStr = d.toISOString().split('T')[0];
+      // Most recent log on or before this day
+      const log = [...weightLogs].reverse().find(l => l.day <= dayStr);
+      if (log) {
+        const def = calcRequiredDeficit(log.weight_kg, dayStr);
+        if (def !== null && def > 0) dailyDeficits.push(def);
+      }
+    }
+    if (dailyDeficits.length === 0) return _smoothedDeficit;
+    return Math.round(dailyDeficits.reduce((s, v) => s + v, 0) / dailyDeficits.length);
+  }
 
   let entries = [];
   let activeCals = 0;
@@ -752,7 +785,7 @@
     return d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
   }
 
-  function getDailyBudget() { return BASELINE + activeCals - TARGET_DEFICIT; }
+  function getDailyBudget() { return BASELINE + activeCals - _smoothedDeficit; }
   function getTotal() { return entries.reduce((s, e) => s + e.cal, 0); }
 
   // ── AUTH ─────────────────────────────────────────────────────
@@ -891,7 +924,6 @@
     const map = {};
     rows.forEach(r => map[r.key] = r.value);
     if (map.baseline)      BASELINE       = parseFloat(map.baseline);
-    if (map.deficit)       TARGET_DEFICIT = parseFloat(map.deficit);
     if (map.target_weight) TARGET_WEIGHT  = parseFloat(map.target_weight);
     if (map.start_weight)  START_WEIGHT   = parseFloat(map.start_weight);
     if (map.target_date)   TARGET_DATE    = map.target_date;
@@ -985,7 +1017,7 @@
 
     toLoseEl.textContent = kgToLose > 0 ? kgToLose.toFixed(1) : '0';
     daysEl.textContent   = daysLeft > 0 ? daysLeft : '0';
-    yourEl.textContent   = TARGET_DEFICIT.toLocaleString();
+    yourEl.textContent   = _smoothedDeficit.toLocaleString();
     const avgActive = _7dayAvgActive !== null ? _7dayAvgActive : 0;
     document.getElementById('track-avg-active').textContent = avgActive > 0 ? avgActive.toLocaleString() : '--';
 
@@ -1004,8 +1036,8 @@
     // So compare directly, but show required in same terms
     reqEl.textContent = requiredDeficit.toLocaleString();
 
-    // effective deficit = what you'd achieve given baseline + avg active - target_deficit food budget
-    const effectiveDeficit = TARGET_DEFICIT; // already in same terms as requiredDeficit
+    // effective deficit = what you'd achieve given baseline + avg active - smoothed deficit food budget
+    const effectiveDeficit = _smoothedDeficit; // already in same terms as requiredDeficit
     const diff = effectiveDeficit - requiredDeficit;
     if (diff >= 0) {
       // surplus — on track or ahead
@@ -1089,12 +1121,12 @@
       if (filtered.length === 0) return null;
       const days = filtered.length;
       const totalConsumed = filtered.reduce((s, r) => s + (r.entries||[]).reduce((a,e) => a+e.cal, 0), 0);
-      const totalBudget   = filtered.reduce((s, r) => s + BASELINE + (r.active_cals||0) - TARGET_DEFICIT, 0);
+      const totalBudget   = filtered.reduce((s, r) => s + BASELINE + (r.active_cals||0) - _smoothedDeficit, 0);
       const avgConsumed   = Math.round(totalConsumed / days);
       const avgBudget     = Math.round(totalBudget / days);
       // Surplus = how far under your food budget you came (positive = good)
       const avgDeficit    = avgBudget - avgConsumed;
-      const pct           = Math.min(Math.max(avgDeficit / TARGET_DEFICIT, 0), 1.5);
+      const pct           = Math.min(Math.max(avgDeficit / _smoothedDeficit, 0), 1.5);
       const color         = avgDeficit >= 0 ? "var(--green)" : "var(--red)";
       return { days, avgConsumed, avgBudget, avgDeficit, pct, color };
     }
@@ -1193,7 +1225,7 @@
 
   function buildDayHTML(row, i) {
     const dayTotal = (row.entries || []).reduce((s, e) => s + e.cal, 0);
-    const budget = BASELINE + (row.active_cals || 0) - TARGET_DEFICIT;
+    const budget = BASELINE + (row.active_cals || 0) - _smoothedDeficit;
     const over = dayTotal > budget;
     const id = `hist-entries-${i}`;
     const openClass = i === 0 && _selectedMonth !== null ? " open" : "";
@@ -1304,7 +1336,7 @@
 
     function openSettings() {
       document.getElementById("s-baseline").value      = BASELINE;
-      document.getElementById("s-deficit").value       = TARGET_DEFICIT;
+      document.getElementById("s-deficit-display").textContent = _smoothedDeficit.toLocaleString();
       document.getElementById("s-target-weight").value = TARGET_WEIGHT;
       document.getElementById("s-target-date").value   = TARGET_DATE;
       settingsPanel.style.display = "block";
@@ -1318,23 +1350,22 @@
 
     settingsSave.addEventListener("click", async () => {
       const baseline     = parseFloat(document.getElementById("s-baseline").value)      || BASELINE;
-      const deficit      = parseFloat(document.getElementById("s-deficit").value)       || TARGET_DEFICIT;
       const targetWeight = parseFloat(document.getElementById("s-target-weight").value) || TARGET_WEIGHT;
       const targetDate   = document.getElementById("s-target-date").value               || TARGET_DATE;
 
       settingsSave.textContent = "SAVING…";
       settingsSave.disabled = true;
       try {
-        await saveSettings({ baseline, deficit, target_weight: targetWeight, target_date: targetDate });
+        await saveSettings({ baseline, target_weight: targetWeight, target_date: targetDate });
         BASELINE       = baseline;
-        TARGET_DEFICIT = deficit;
         TARGET_WEIGHT  = targetWeight;
         TARGET_DATE    = targetDate;
         document.getElementById("stat-baseline").textContent = BASELINE.toLocaleString();
+        // Recalculate smoothed deficit with updated targets
+        weightTabLoaded = false;
+        await loadWeightTab();
         updateStats();
         updateActivityWarning();
-        weightTabLoaded = false;
-        loadWeightTab();
         settingsMsg.style.color = "var(--green)";
         settingsMsg.textContent = "✓ SAVED";
         setTimeout(() => { settingsPanel.style.display = "none"; settingsMsg.textContent = ""; }, 1200);
@@ -1548,15 +1579,24 @@
 
   async function loadWeightTab() {
     const [logs, calorieHist] = await Promise.all([fetchWeightLog(), fetchHistory(todayKey)]);
+    // Compute smoothed deficit from weight history and update global
+    if (logs && logs.length > 0) {
+      _latestWeight = logs[logs.length - 1].weight_kg;
+      _smoothedDeficit = computeSmoothedDeficit(logs);
+      // Update read-only display in settings if panel is open
+      const dispEl = document.getElementById('s-deficit-display');
+      if (dispEl) dispEl.textContent = _smoothedDeficit.toLocaleString();
+    }
     renderWeightChart(logs, calorieHist);
     // Pre-fill weight input with today's weight if logged
     const todayLog = logs.find(l => l.day === todayKey);
     if (todayLog) document.getElementById("weight-input").value = todayLog.weight_kg;
-    // Update on-track "to lose" with latest weigh-in
+    // Update on-track panel with latest weight
     if (logs.length > 0) {
-      const latestWeight = logs[logs.length - 1].weight_kg;
-      updateOnTrack(latestWeight);
+      updateOnTrack(_latestWeight);
     }
+    // Refresh stats now that _smoothedDeficit is updated
+    updateStats();
   }
 
   function renderWeightChart(logs, calorieHist) {
@@ -1825,7 +1865,8 @@
         await upsertWeight(day, val);
         modal.classList.remove('open');
         weightTabLoaded = false;
-        loadWeightTab();
+        await loadWeightTab(); // recalculates smoothed deficit
+        updateStats();
       } catch(e) { showDbError(e.message); }
       setSaving(false);
     };
