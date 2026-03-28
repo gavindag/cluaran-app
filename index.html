@@ -501,7 +501,7 @@
       <div class="header-sub" id="date-label"></div>
     </div>
     <div style="display:flex;align-items:center;gap:14px;">
-      <div style="font-size:10px;color:var(--dim);letter-spacing:1px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 7px;">v3.0</div>
+      <div style="font-size:10px;color:var(--dim);letter-spacing:1px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 7px;">v3.1</div>
       <div id="saving-indicator">SAVING…</div>
       <button id="signout-btn" title="Sign out">SIGN OUT</button>
       <button id="settings-btn" title="Settings">⚙</button>
@@ -554,14 +554,6 @@
         <label class="settings-label">TARGET DATE</label>
         <div class="settings-input-wrap">
           <input type="date" id="s-target-date" class="settings-input settings-date">
-        </div>
-      </div>
-      <div class="settings-section" style="margin-top:20px;">ACTIVITY</div>
-      <div class="settings-row">
-        <label class="settings-label">AVG ACTIVE BURN <span class="settings-hint">Garmin daily avg</span></label>
-        <div class="settings-input-wrap">
-          <input type="number" id="s-avg-active" class="settings-input" placeholder="907">
-          <span class="settings-unit">kcal</span>
         </div>
       </div>
       <button id="settings-save">SAVE SETTINGS</button>
@@ -624,9 +616,9 @@
         <div class="track-unit">kcal/day set</div>
       </div>
       <div class="track-item">
-        <div class="track-label">AVG ACTIVE SETTING</div>
+        <div class="track-label">7-DAY AVG ACTIVE</div>
         <div class="track-val" id="track-avg-active">--</div>
-        <div class="track-unit">kcal/day burn</div>
+        <div class="track-unit">kcal/day actual</div>
       </div>
     </div>
     <div id="activity-warning" style="display:none; margin-top:14px; padding-top:14px; border-top:1px solid var(--border);">
@@ -748,7 +740,7 @@
   let TARGET_WEIGHT = 86;
   let START_WEIGHT = 102;
   let TARGET_DATE = "2026-07-01";
-  let AVG_ACTIVE = 907;  // default: 3189 total - 2282 baseline
+  let _7dayAvgActive = null; // populated by updateActivityWarning, used by updateOnTrack
 
   let entries = [];
   let activeCals = 0;
@@ -903,7 +895,6 @@
     if (map.target_weight) TARGET_WEIGHT  = parseFloat(map.target_weight);
     if (map.start_weight)  START_WEIGHT   = parseFloat(map.start_weight);
     if (map.target_date)   TARGET_DATE    = map.target_date;
-    if (map.avg_active)    AVG_ACTIVE     = parseFloat(map.avg_active);
   }
 
   async function saveSettings(vals) {
@@ -954,35 +945,29 @@
     const rows = await fetch7DayActive();
     if (!rows) { el.style.display = 'none'; return; }
 
-    // filter to rows with active_cals > 0
     const withData = rows.filter(r => r.active_cals > 0);
     const count = withData.length;
 
     if (count < 3) {
+      _7dayAvgActive = null;
       el.style.display = 'block';
       valEl.textContent = '--';
       noteEl.textContent = count === 0 ? 'no data yet' : `${count} day${count>1?'s':''} so far`;
       badgeEl.textContent = 'BUILDING';
       badgeEl.style.cssText = 'background:rgba(100,100,120,0.15);color:var(--dim);border:1px solid rgba(100,100,120,0.2);font-family:Bebas Neue;font-size:13px;letter-spacing:2px;padding:3px 10px;border-radius:6px;';
+      updateOnTrack();
       return;
     }
 
     const avg = Math.round(withData.reduce((s,r) => s + r.active_cals, 0) / count);
-    const pct = avg / AVG_ACTIVE;
+    _7dayAvgActive = avg;
     el.style.display = 'block';
     valEl.textContent = avg.toLocaleString();
     noteEl.textContent = count < 7 ? `(${count} days)` : '';
 
-    if (pct >= 1.1) {
-      badgeEl.textContent = 'ACTIVITY OK';
-      badgeEl.style.cssText = 'background:rgba(93,214,138,0.15);color:var(--green);border:1px solid rgba(93,214,138,0.3);font-family:Bebas Neue;font-size:13px;letter-spacing:2px;padding:3px 10px;border-radius:6px;';
-    } else if (pct >= 0.8) {
-      badgeEl.textContent = 'ACTIVITY LOW';
-      badgeEl.style.cssText = 'background:rgba(255,170,85,0.15);color:var(--orange);border:1px solid rgba(255,170,85,0.3);font-family:Bebas Neue;font-size:13px;letter-spacing:2px;padding:3px 10px;border-radius:6px;';
-    } else {
-      badgeEl.textContent = 'ACTIVITY VERY LOW';
-      badgeEl.style.cssText = 'background:rgba(255,107,107,0.15);color:var(--red);border:1px solid rgba(255,107,107,0.3);font-family:Bebas Neue;font-size:13px;letter-spacing:2px;padding:3px 10px;border-radius:6px;';
-    }
+    // Update weight target panel with real avg
+    document.getElementById('track-avg-active').textContent = avg.toLocaleString();
+    updateOnTrack();
   }
 
   function updateOnTrack(currentWeight) {
@@ -1001,7 +986,8 @@
     toLoseEl.textContent = kgToLose > 0 ? kgToLose.toFixed(1) : '0';
     daysEl.textContent   = daysLeft > 0 ? daysLeft : '0';
     yourEl.textContent   = TARGET_DEFICIT.toLocaleString();
-    document.getElementById('track-avg-active').textContent = AVG_ACTIVE.toLocaleString();
+    const avgActive = _7dayAvgActive !== null ? _7dayAvgActive : 0;
+    document.getElementById('track-avg-active').textContent = avgActive > 0 ? avgActive.toLocaleString() : '--';
 
     if (daysLeft <= 0 || kgToLose <= 0) {
       badge.className = 'no-data'; badge.textContent = 'NO DATA';
@@ -1321,7 +1307,6 @@
       document.getElementById("s-deficit").value       = TARGET_DEFICIT;
       document.getElementById("s-target-weight").value = TARGET_WEIGHT;
       document.getElementById("s-target-date").value   = TARGET_DATE;
-      document.getElementById("s-avg-active").value    = AVG_ACTIVE;
       settingsPanel.style.display = "block";
       settingsMsg.textContent = "";
     }
@@ -1336,17 +1321,15 @@
       const deficit      = parseFloat(document.getElementById("s-deficit").value)       || TARGET_DEFICIT;
       const targetWeight = parseFloat(document.getElementById("s-target-weight").value) || TARGET_WEIGHT;
       const targetDate   = document.getElementById("s-target-date").value               || TARGET_DATE;
-      const avgActive    = parseFloat(document.getElementById("s-avg-active").value)    || AVG_ACTIVE;
 
       settingsSave.textContent = "SAVING…";
       settingsSave.disabled = true;
       try {
-        await saveSettings({ baseline, deficit, target_weight: targetWeight, target_date: targetDate, avg_active: avgActive });
+        await saveSettings({ baseline, deficit, target_weight: targetWeight, target_date: targetDate });
         BASELINE       = baseline;
         TARGET_DEFICIT = deficit;
         TARGET_WEIGHT  = targetWeight;
         TARGET_DATE    = targetDate;
-        AVG_ACTIVE     = avgActive;
         document.getElementById("stat-baseline").textContent = BASELINE.toLocaleString();
         updateStats();
         updateActivityWarning();
