@@ -509,7 +509,7 @@
       <div class="header-sub" id="date-label"></div>
     </div>
     <div style="display:flex;align-items:center;gap:14px;">
-      <div style="font-size:10px;color:var(--dim);letter-spacing:1px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 7px;">v4.0</div>
+      <div style="font-size:10px;color:var(--dim);letter-spacing:1px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 7px;">v4.1</div>
       <div id="saving-indicator">SAVING…</div>
       <button id="signout-btn" title="Sign out">SIGN OUT</button>
       <button id="settings-btn" title="Settings">⚙</button>
@@ -1152,12 +1152,12 @@
       if (filtered.length === 0) return null;
       const days = filtered.length;
       const totalConsumed = filtered.reduce((s, r) => s + (r.entries||[]).reduce((a,e) => a+e.cal, 0), 0);
-      const totalBudget   = filtered.reduce((s, r) => s + BASELINE + (r.active_cals||0) - _smoothedDeficit, 0);
+      const totalBudget   = filtered.reduce((s, r) => s + getBudgetForDay(r.day, r.active_cals), 0);
       const avgConsumed   = Math.round(totalConsumed / days);
       const avgBudget     = Math.round(totalBudget / days);
       // Surplus = how far under your food budget you came (positive = good)
       const avgDeficit    = avgBudget - avgConsumed;
-      const pct           = Math.min(Math.max(avgDeficit / _smoothedDeficit, 0), 1.5);
+      const pct           = Math.min(Math.max(avgDeficit / Math.max(_smoothedDeficit, 1), 0), 1.5);
       const color         = avgDeficit >= 0 ? "var(--green)" : "var(--red)";
       return { days, avgConsumed, avgBudget, avgDeficit, pct, color };
     }
@@ -1218,6 +1218,7 @@
   };
 
   let _historyRows = [];
+  let _weightLogCache = []; // sorted ascending, used by history view for per-day budget calc
   let _selectedMonth = null;
   let _historyTabLoaded = false;
   let _historyMonthIndex = []; // lightweight: just {day} objects
@@ -1254,9 +1255,29 @@
     }).join('');
   }
 
+  // Calculate the food budget for a specific historical day
+  // Uses most recent weight on or before that day to derive required deficit
+  function getBudgetForDay(day, activeCalsForDay) {
+    const active = activeCalsForDay || 0;
+    // Find most recent weight on or before this day
+    const weightEntry = _weightLogCache.length > 0
+      ? [..._weightLogCache].reverse().find(l => l.day <= day)
+      : null;
+    const weightKg = weightEntry ? weightEntry.weight_kg : (_latestWeight || START_WEIGHT);
+    // Calculate required deficit for that day
+    const dayDate = new Date(day + 'T00:00:00');
+    const targetDate = new Date(TARGET_DATE + 'T00:00:00');
+    const daysLeft = Math.round((targetDate - dayDate) / 86400000);
+    if (daysLeft <= 0) return BASELINE + active; // no deficit if past target date
+    const kgToLose = weightKg - TARGET_WEIGHT;
+    if (kgToLose <= 0) return BASELINE + active;
+    const requiredDeficit = Math.round((kgToLose * 7700) / daysLeft);
+    return BASELINE + active - requiredDeficit;
+  }
+
   function buildDayHTML(row, i) {
     const dayTotal = (row.entries || []).reduce((s, e) => s + e.cal, 0);
-    const budget = BASELINE + (row.active_cals || 0) - _smoothedDeficit;
+    const budget = getBudgetForDay(row.day, row.active_cals);
     const over = dayTotal > budget;
     const id = `hist-entries-${i}`;
     const openClass = i === 0 && _selectedMonth !== null ? " open" : "";
@@ -1651,6 +1672,7 @@
 
     if (logs && logs.length > 0) {
       _latestWeight = logs[logs.length - 1].weight_kg;
+      _weightLogCache = logs; // cache for history per-day budget calculation
       _smoothedDeficit = computeSmoothedDeficit(logs);
     }
 
