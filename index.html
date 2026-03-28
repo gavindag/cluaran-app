@@ -87,6 +87,14 @@
       letter-spacing: 1.5px; cursor: pointer; font-family: 'DM Mono'; transition: background 0.2s; white-space: nowrap;
     }
     #set-btn:hover { background: rgba(21,101,168,0.12); }
+    #reset-active-btn {
+      background: rgba(21,101,168,0.06); border: 1px solid rgba(21,101,168,0.2);
+      border-radius: 6px; color: var(--blue); padding: 5px 10px; font-size: 14px;
+      cursor: pointer; font-family: 'DM Mono'; transition: background 0.2s; white-space: nowrap;
+    }
+    #reset-active-btn:hover { background: rgba(21,101,168,0.12); }
+    #active-input.is-default { color: rgba(21,101,168,0.45); }
+    #active-input.is-user-set { color: var(--blue); font-weight: 500; }
 
     /* STATS CARD */
     #stats-card {
@@ -501,7 +509,7 @@
       <div class="header-sub" id="date-label"></div>
     </div>
     <div style="display:flex;align-items:center;gap:14px;">
-      <div style="font-size:10px;color:var(--dim);letter-spacing:1px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 7px;">v3.7</div>
+      <div style="font-size:10px;color:var(--dim);letter-spacing:1px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 7px;">v4.0</div>
       <div id="saving-indicator">SAVING…</div>
       <button id="signout-btn" title="Sign out">SIGN OUT</button>
       <button id="settings-btn" title="Settings">⚙</button>
@@ -556,6 +564,7 @@
     <div class="garmin-label">⌚ GARMIN ACTIVE</div>
     <input type="number" id="active-input" placeholder="0">
     <div class="garmin-unit">kcal burned</div>
+    <button id="reset-active-btn" title="Reset to 7-day average" style="display:none;">↺</button>
     <button id="set-btn">SET</button>
   </div>
 
@@ -769,6 +778,7 @@
 
   let entries = [];
   let activeCals = 0;
+  let _activeCalsIsDefault = false; // true when active cals was auto-filled from 7-day average
   let weightTabLoaded = false;
   let todayKey = new Date().toISOString().split("T")[0];
 
@@ -791,6 +801,21 @@
     return Math.round(BASELINE + avgActive - avgConsumed);
   }
 
+  function updateGarminBarState() {
+    const input = document.getElementById('active-input');
+    const resetBtn = document.getElementById('reset-active-btn');
+    if (_activeCalsIsDefault) {
+      input.classList.add('is-default');
+      input.classList.remove('is-user-set');
+      resetBtn.style.display = 'none';
+    } else {
+      input.classList.remove('is-default');
+      input.classList.add('is-user-set');
+      // Show reset button only if 7-day average is available and differs from current value
+      const showReset = _7dayAvgActive !== null && _7dayAvgActive !== activeCals;
+      resetBtn.style.display = showReset ? 'inline-block' : 'none';
+    }
+  }
   function getDailyBudget() { return BASELINE + activeCals - _smoothedDeficit; }
   function getTotal() { return entries.reduce((s, e) => s + e.cal, 0); }
 
@@ -1167,7 +1192,7 @@
 
     el.innerHTML = `
       <div id="deficit-summary-header" onclick="toggleDeficitSummary()">
-        <div class="deficit-summary-title">DEFICIT SUMMARY</div>
+        <div class="deficit-summary-title">CALORIE BASED DEFICIT SUMMARY</div>
         <div style="display:flex;align-items:center;">
           <div class="deficit-summary-pills">
             ${pillHTML(week ? {...week, label:'7D'} : null)}
@@ -1299,15 +1324,29 @@
     _historyTabLoaded = false; // force history to reload next time tab is opened
     try {
       const [todayRow, hist] = await Promise.all([fetchDay(todayKey), fetchHistory(todayKey)]);
+      let todayHasActiveCals = false;
       if (todayRow) {
         entries = todayRow.entries || [];
         activeCals = todayRow.active_cals || 0;
+        todayHasActiveCals = (todayRow.active_cals || 0) > 0;
         document.getElementById("active-input").value = activeCals || "";
       }
       renderEntries();
       renderDeficitSummary(hist);
       updateStats();
-      updateActivityWarning();
+      // updateActivityWarning populates _7dayAvgActive — await it so we can use the result
+      await updateActivityWarning();
+      // Auto-apply 7-day average if today has no active cals and we have enough data
+      if (!todayHasActiveCals && _7dayAvgActive !== null) {
+        activeCals = _7dayAvgActive;
+        _activeCalsIsDefault = true;
+        document.getElementById("active-input").value = activeCals;
+        updateStats();
+        try { await upsertDay(todayKey, entries, activeCals); } catch(e) { /* silent */ }
+      } else {
+        _activeCalsIsDefault = false;
+      }
+      updateGarminBarState();
     } catch(e) {
       showDbError(e.message);
     }
@@ -1386,7 +1425,9 @@
     document.getElementById("set-btn").addEventListener("click", async () => {
       const val = parseInt(document.getElementById("active-input").value) || 0;
       activeCals = val;
+      _activeCalsIsDefault = false;
       updateStats();
+      updateGarminBarState();
       setSaving(true);
       try { await upsertDay(todayKey, entries, activeCals); } catch(e) { showDbError(e.message); }
       setSaving(false);
@@ -1394,6 +1435,19 @@
 
     document.getElementById("active-input").addEventListener("keydown", e => {
       if (e.key === "Enter") document.getElementById("set-btn").click();
+    });
+
+    // Reset active cals to 7-day average
+    document.getElementById("reset-active-btn").addEventListener("click", async () => {
+      if (_7dayAvgActive === null) return;
+      activeCals = _7dayAvgActive;
+      _activeCalsIsDefault = true;
+      document.getElementById("active-input").value = activeCals;
+      updateStats();
+      updateGarminBarState();
+      setSaving(true);
+      try { await upsertDay(todayKey, entries, activeCals); } catch(e) { showDbError(e.message); }
+      setSaving(false);
     });
 
     // LOG IT
@@ -1810,7 +1864,10 @@
         interaction: { mode: 'index', intersect: false },
         plugins: {
           legend: {
-            labels: { font: { family: 'DM Mono', size: 10 }, color: '#555250', boxWidth: 20 }
+            labels: {
+              font: { family: 'DM Mono', size: 10 }, color: '#555250', boxWidth: 20,
+              filter: (item, chart) => !chart.datasets[item.datasetIndex].hidden
+            }
           },
           tooltip: {
             callbacks: {
