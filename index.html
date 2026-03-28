@@ -501,7 +501,7 @@
       <div class="header-sub" id="date-label"></div>
     </div>
     <div style="display:flex;align-items:center;gap:14px;">
-      <div style="font-size:10px;color:var(--dim);letter-spacing:1px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 7px;">v2.7</div>
+      <div style="font-size:10px;color:var(--dim);letter-spacing:1px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 7px;">v2.8</div>
       <div id="saving-indicator">SAVING…</div>
       <button id="signout-btn" title="Sign out">SIGN OUT</button>
       <button id="settings-btn" title="Settings">⚙</button>
@@ -1350,6 +1350,8 @@
         document.getElementById("stat-baseline").textContent = BASELINE.toLocaleString();
         updateStats();
         updateActivityWarning();
+        weightTabLoaded = false;
+        loadWeightTab();
         settingsMsg.style.color = "var(--green)";
         settingsMsg.textContent = "✓ SAVED";
         setTimeout(() => { settingsPanel.style.display = "none"; settingsMsg.textContent = ""; }, 1200);
