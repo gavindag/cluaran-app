@@ -509,7 +509,7 @@
       <div class="header-sub" id="date-label"></div>
     </div>
     <div style="display:flex;align-items:center;gap:14px;">
-      <div style="font-size:10px;color:var(--dim);letter-spacing:1px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 7px;">v4.3</div>
+      <div style="font-size:10px;color:var(--dim);letter-spacing:1px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 7px;">v4.4</div>
       <div id="saving-indicator">SAVING…</div>
       <button id="signout-btn" title="Sign out">SIGN OUT</button>
       <button id="settings-btn" title="Settings">⚙</button>
@@ -739,8 +739,9 @@
   let START_WEIGHT = 102;
   let TARGET_DATE = "2026-07-01";
   let _7dayAvgActive = null; // populated by updateActivityWarning, used by updateOnTrack
-  let _smoothedDeficit = 600; // calculated dynamically from weight log; used in place of TARGET_DEFICIT
+  let _smoothedDeficit = 600; // actual sustained rate from weight log — used for on-track comparison only
   let _latestWeight = null;   // most recent weight log entry
+  let _requiredDeficit = 600; // required deficit to hit target — used for food budget
   let _loggedDeficit = null;  // deficit implied by calorie log: baseline + 7day avg active - 7day avg consumed
   let _deficitSource = 'logged'; // 'weight' or 'logged' — which is being used for on-track comparison
 
@@ -827,7 +828,15 @@
     }
   }
 
-  function getDailyBudget() { return BASELINE + activeCals - _smoothedDeficit; }
+  function updateRequiredDeficit() {
+    const today = new Date(); today.setHours(0,0,0,0);
+    const todayStr = today.toISOString().split('T')[0];
+    const weightKg = _latestWeight || START_WEIGHT;
+    const def = calcRequiredDeficit(weightKg, todayStr);
+    _requiredDeficit = (def !== null && def > 0) ? def : 0;
+  }
+
+  function getDailyBudget() { return BASELINE + activeCals - _requiredDeficit; }
   function getTotal() { return entries.reduce((s, e) => s + e.cal, 0); }
 
   // ── AUTH ─────────────────────────────────────────────────────
@@ -1429,6 +1438,7 @@
   // --- INIT ---
   async function init() {
     await fetchSettings(); // load from Supabase before rendering
+    updateRequiredDeficit(); // initial calculation before weight log loads
     document.getElementById("date-label").textContent = formatDate(todayKey).toUpperCase() + " · CALORIE LOG";
     document.getElementById("stat-baseline").textContent = BASELINE.toLocaleString();
     updateStats();
@@ -1747,8 +1757,9 @@
 
     if (logs && logs.length > 0) {
       _latestWeight = logs[logs.length - 1].weight_kg;
-      _weightLogCache = logs; // cache for history per-day budget calculation
+      _weightLogCache = logs;
       _smoothedDeficit = computeSmoothedDeficit(logs);
+      updateRequiredDeficit();
     }
 
     // Decide source for on-track comparison
